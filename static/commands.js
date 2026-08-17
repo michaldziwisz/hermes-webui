@@ -2244,12 +2244,39 @@ function showCmdDropdown(matches){
     dd.appendChild(el);
   }
   dd.classList.add('open');
+  // Stan poczatkowy: pierwsza pozycja jest juz wybrana (_cmdSelectedIdx=0),
+  // wiec kontrakt musi powstac OD RAZU, nie po pierwszej strzalce.
+  _syncCmdDropdownA11y();
 }
 
 function hideCmdDropdown(){
   const dd=$('cmdDropdown');
   if(dd)dd.classList.remove('open');
   _cmdSelectedIdx=-1;
+  // Po zwinieciu listy pole nie moze wskazywac aria-activedescendant na
+  // element, ktorego uzytkownik juz nie widzi.
+  _syncCmdDropdownA11y();
+}
+
+/* a11y (WCAG 4.1.2): wybrana podpowiedz byla oznaczona TYLKO klasa CSS
+   'selected'. Strzalki dzialaly, ale fokus zostaje w polu tekstowym, wiec
+   czytnik ekranu nie oglaszal NICZEGO — uzytkownik nie wiedzial, co zatwierdzi
+   Enterem. Repo rozwiazalo juz ten sam problem dla listy modeli (ui.js,
+   _highlightRow), wiec uzywamy wspolnego helpera zamiast czwartej kopii.
+   Wolane z KAZDEGO miejsca zmieniajacego wybor: pokazanie listy, nawigacja
+   strzalkami i jej ukrycie. */
+function _syncCmdDropdownA11y(){
+  if(typeof a11yActiveDescendantList!=='function') return;
+  const dd=$('cmdDropdown');
+  const pole=$('msg');
+  const items=dd?Array.from(dd.querySelectorAll('.cmd-item')):[];
+  // Widocznosc sterowana KLASA 'open' (nie style.display) - sprawdzone w
+  // showCmdDropdown/hideCmdDropdown ponizej.
+  const widoczna=!!dd&&items.length>0&&dd.classList.contains('open');
+  a11yActiveDescendantList(pole, dd, widoczna?items:[], _cmdSelectedIdx, {
+    idPrefix:'cmdOpt',
+    label:(typeof t==='function'?t('slash_commands_list_aria'):null)||'Slash commands'
+  });
 }
 
 function navigateCmdDropdown(dir){
@@ -2265,6 +2292,7 @@ function navigateCmdDropdown(dir){
   // Scroll the newly highlighted item into view so it stays visible when the
   // dropdown overflows and the user navigates with keyboard (#838).
   items[_cmdSelectedIdx].scrollIntoView({block:'nearest'});
+  _syncCmdDropdownA11y();
 }
 
 function selectCmdDropdownItem(){

@@ -277,6 +277,60 @@ function a11yTablist(tablist, opts){
   return tablist;
 }
 
+/* Lista wyboru sterowana strzalkami (combobox + listbox).
+ *
+ * Zmierzony defekt (18.08.2026): podpowiedzi komend /slash i podpowiedzi
+ * katalogow roboczych maja pelna nawigacje strzalkami, ale wybrana pozycja jest
+ * oznaczona WYLACZNIE klasa CSS. Czytnik ekranu nie oglasza wiec niczego przy
+ * przechodzeniu po liscie — uzytkownik slyszy cisze i nie wie, co zatwierdzi
+ * Enterem. WCAG 4.1.2.
+ *
+ * To kolejny wariant tej samej klasy bledu (po zakladkach i plakietkach zrodel),
+ * a repo ma juz jego poprawne rozwiazanie dla listy modeli (ui.js, _highlightRow:
+ * role="option" + aria-selected + aria-activedescendant na polu). Zamiast
+ * czwartej kopii tamtej logiki, wystawiamy ja jako wspolny helper.
+ *
+ * Kontrakt jest calosciowy — sama aria-selected nie wystarczy, bo bez
+ * role="listbox"/"option" czytnik nie traktuje tego jak listy wyboru, a bez
+ * aria-activedescendant nie oglosi ruchu, skoro fokus zostaje w polu tekstowym.
+ *
+ * Idempotentny: wolaj po kazdej zmianie wyboru.
+ */
+function a11yActiveDescendantList(pole, lista, elementy, wybranyIndeks, opts){
+  if (!lista || !elementy || !elementy.length) {
+    // Lista zwinieta: pole nie moze wskazywac na nieistniejacy element.
+    if (pole && typeof pole.removeAttribute === 'function') {
+      pole.removeAttribute('aria-activedescendant');
+      pole.setAttribute('aria-expanded', 'false');
+    }
+    return;
+  }
+  const options = opts || {};
+  const prefiks = options.idPrefix || 'a11yOpt';
+  if (!lista.getAttribute('role')) lista.setAttribute('role', 'listbox');
+  if (options.label) a11yLabel(lista, options.label);
+
+  let wybrany = null;
+  for (let i = 0; i < elementy.length; i++) {
+    const el = elementy[i];
+    if (!el || typeof el.setAttribute !== 'function') continue;
+    if (!el.getAttribute('role')) el.setAttribute('role', 'option');
+    if (!el.id) el.id = `${prefiks}_${i}_${Math.random().toString(36).slice(2, 7)}`;
+    const czyWybrany = i === wybranyIndeks;
+    el.setAttribute('aria-selected', czyWybrany ? 'true' : 'false');
+    if (czyWybrany) wybrany = el;
+  }
+
+  if (!pole || typeof pole.setAttribute !== 'function') return;
+  if (!pole.getAttribute('role')) pole.setAttribute('role', 'combobox');
+  pole.setAttribute('aria-expanded', 'true');
+  pole.setAttribute('aria-autocomplete', 'list');
+  if (!lista.id) lista.id = `${prefiks}_lista_${Math.random().toString(36).slice(2, 7)}`;
+  pole.setAttribute('aria-controls', lista.id);
+  if (wybrany) pole.setAttribute('aria-activedescendant', wybrany.id);
+  else pole.removeAttribute('aria-activedescendant');
+}
+
 if (typeof window !== 'undefined') {
   window.a11yTrapFocus = a11yTrapFocus;
   window.a11ySyncPressedState = a11ySyncPressedState;
@@ -285,6 +339,7 @@ if (typeof window !== 'undefined') {
   window.a11yAsButton = a11yAsButton;
   window.a11yAsLink = a11yAsLink;
   window.a11yTablist = a11yTablist;
+  window.a11yActiveDescendantList = a11yActiveDescendantList;
 }
 
 /* ── Nawigacja po naglowkach w zapisie rozmowy ────────────────────────────

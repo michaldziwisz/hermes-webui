@@ -5618,6 +5618,10 @@ function closeWorkspacePathSuggestions(){
     box.style.display='none';
   }
   _wsSuggestIndex=-1;
+  // Lista zwinieta: pole nie moze dalej wskazywac na usunieta pozycje.
+  if(typeof a11yActiveDescendantList==='function'){
+    a11yActiveDescendantList($('workspaceFormPath'), box, [], -1, {idPrefix:'wsSuggest'});
+  }
 }
 
 function _applyWorkspaceSuggestion(path){
@@ -5640,6 +5644,18 @@ function _highlightWorkspaceSuggestion(idx){
     el.classList.toggle('active', active);
     if(active) el.scrollIntoView({block:'nearest'});
   });
+  /* a11y (WCAG 4.1.2): podswietlenie zylo tylko w klasie CSS. Strzalki dzialaly,
+     ale fokus zostaje w polu sciezki, wiec czytnik ekranu nie oglaszal, ktora
+     podpowiedz jest wybrana. Ten sam kontrakt co lista modeli i podpowiedzi
+     komend — jeden wspolny helper, nie kolejna kopia. */
+  if(typeof a11yActiveDescendantList==='function'){
+    const widoczna=items.length>0&&box.style.display!=='none';
+    a11yActiveDescendantList($('workspaceFormPath'), box, widoczna?items:[], idx, {
+      idPrefix:'wsSuggest',
+      label:(typeof t==='function'?t('workspace_path_suggestions_aria'):null)
+            ||'Path suggestions'
+    });
+  }
 }
 
 function _renderWorkspacePathSuggestions(paths){
