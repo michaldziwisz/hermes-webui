@@ -195,20 +195,106 @@ function _a11yRoleLabel(row){
  * The number and the opening words are what make the heading list usable —
  * a list of twenty identical "Hermes" entries would navigate no better than
  * no headings at all. */
-function _a11yEnsureTurnHeading(row, ordinal){
+/* Tekst naglowka tury.
+ *
+ * Rozne zasady dla obu stron rozmowy, i to jest celowe:
+ *
+ * - WYPOWIEDZ UZYTKOWNIKA dostaje fragment tresci. Sluzy do orientacji
+ *   "gdzie o co pytalem", a polecenia sa krotkie, wiec skrot nie przeszkadza.
+ *
+ * - ODPOWIEDZ ASYSTENTA dostaje tylko role i godzine. Skracanie dlugiej
+ *   odpowiedzi do 70 znakow bylo irytujace: uzytkownik slyszal poszatkowany
+ *   poczatek zdania, a potem to samo zdanie jeszcze raz w tresci. Naglowek ma
+ *   byc punktem zaczepienia do skoku, nie streszczeniem. Tresc czyta sie
+ *   ZARAZ POD naglowkiem (patrz _a11yReorderTurn).
+ */
+function _a11yTurnHeadingText(row, ordinal){
   const label = _a11yRoleLabel(row);
-  const snippet = _a11ySnippet(row);
-  // A turn that has not produced prose yet (thinking, running tools) would
-  // otherwise read as a bare "5. Hermes" — say what it is doing instead, so the
-  // heading list stays meaningful mid-answer.
-  let tail = snippet;
-  if (!tail) {
-    const working = row.querySelector('.agent-activity-group, .tool-call-group, .thinking-card');
-    tail = working
-      ? ((typeof t === 'function' && t('a11y_turn_working')) || 'working…')
-      : '';
+  const isAssistant = (row.dataset && row.dataset.role === 'assistant')
+    || row.classList.contains('assistant-turn');
+
+  if (isAssistant) {
+    // Godzina z atrybutu title podpisu roli ("17.08.2026, 11:15:25").
+    const roleEl = row.querySelector('.msg-role');
+    const stamp = roleEl ? (roleEl.getAttribute('title') || '') : '';
+    const hhmm = (stamp.match(/(\d{1,2}:\d{2})/) || [])[1] || '';
+    return `${ordinal}. ${label}${hhmm ? ' ' + hhmm : ''}`;
   }
-  const text = `${ordinal}. ${label}${tail ? ': ' + tail : ''}`;
+
+  const snippet = _a11ySnippet(row);
+  return `${ordinal}. ${label}${snippet ? ': ' + snippet : ''}`;
+}
+
+/* Kolejnosc w turze asystenta: ODPOWIEDZ NAJPIERW, dziennik i przyciski potem.
+ *
+ * Problem zmierzony w sesji na 1152 wiadomosci: w kodzie strony dziennik
+ * aktywnosci ("Processed") lezy PRZED trescia odpowiedzi (indeksy 5 vs 346).
+ * Skok na naglowek wypowiedzi ladowal wiec na dzienniku, a nie na odpowiedzi —
+ * do tresci trzeba bylo dopiero dojechac.
+ *
+ * Rozwiazanie: .assistant-turn-blocks jest flexem w kolumnie (zmierzone:
+ * display:flex, flex-direction:column), a flexbox pozwala zmienic kolejnosc
+ * atrybutem order — i, co tu najwazniejsze, DLA CZYTNIKA EKRANU TEZ, bo
+ * przegladarki ustawiaja kolejnosc w drzewie dostepnosci zgodnie z ukladem
+ * flex. Nie przenosimy wiec wezlow w DOM (co zerwaloby recykling wierszy,
+ * pomiary wysokosci i zakotwiczenia przewijania), tylko nadajemy order.
+ *
+ * WYJATEK: tura NA ZYWO zostaje bez zmian. Dziennik jest wtedy jedyna
+ * informacja o postepie i musi byc na gorze; przestawianie go w trakcie
+ * odpowiedzi przeskakiwaloby uklad pod palcami uzytkownika.
+ */
+function _a11yReorderTurn(row){
+  if (!row.classList.contains('assistant-turn')) return;
+  const blocks = row.querySelector('.assistant-turn-blocks');
+  if (!blocks) return;
+
+  // Tura w toku: nie ruszamy jej kolejnosci.
+  //
+  // Pulapka zmierzona: pierwsza wersja rozpoznawala trwanie po
+  // `.thinking-card:not(.done)` — a karty rozumowania w turach ZAKONCZONYCH
+  // tez nie maja klasy `done` (zmierzone: 5 z 5 kart w zamknietej turze).
+  // Skutek: KAZDA tura wygladala na trwajaca i nic nie zostalo przestawione.
+  // Wiarygodne znaczniki trwania to identyfikator tury na zywo albo obecnosc
+  // wskaznika postepu w dokumencie wskazujacego wlasnie na ten wiersz.
+  const liveTurn = document.getElementById('liveAssistantTurn');
+  const live = (liveTurn && (liveTurn === row || row.contains(liveTurn) || liveTurn.contains(row)))
+    || row.dataset.live === 'true'
+    || row.querySelector('.stream-cursor, .typing-indicator, .msg-streaming') !== null;
+
+  const kids = Array.from(blocks.children);
+  const hasProse = kids.some(el => el.classList.contains('assistant-segment')
+    && el.getClientRects().length > 0);
+  if (live || !hasProse) {
+    // wycofaj ewentualne wczesniejsze przestawienie
+    for (const el of kids) {
+      if (el.dataset && el.dataset.a11yOrdered) {
+        el.style.order = '';
+        delete el.dataset.a11yOrdered;
+      }
+    }
+    return;
+  }
+
+  for (const el of kids) {
+    const isLog = el.classList.contains('agent-activity-group')
+      || el.classList.contains('tool-call-group')
+      || el.classList.contains('tool-worklog')
+      || el.classList.contains('thinking-card');
+    if (!isLog) continue;
+    // ZMIERZONE: sam CSS `order` NIE wystarcza. Po ustawieniu order=2/1 uklad
+    // wizualny zmienil sie poprawnie (tresc nad dziennikiem), ale w drzewie
+    // dostepnosci dziennik NADAL byl przed trescia (pozycje 1731 vs 1734) —
+    // a czytnik ekranu czyta wlasnie to drzewo, nie uklad wizualny.
+    // Dlatego przenosimy wezel na koniec kontenera. Robimy to tylko dla tur
+    // ZAKONCZONYCH, wiec nie kolidujemy ze strumieniowaniem.
+    if (el.nextElementSibling) blocks.appendChild(el);
+    if (el.style.order) el.style.order = '';
+    if (el.dataset) el.dataset.a11yOrdered = '1';
+  }
+}
+
+function _a11yEnsureTurnHeading(row, ordinal){
+  const text = _a11yTurnHeadingText(row, ordinal);
 
   let h = row.firstElementChild;
   if (!(h && h.dataset && h.dataset[A11Y_HEAD_MARK] === 'turn')) {
@@ -291,6 +377,7 @@ function a11yDecorateConversationHeadings(container){
     n += 1;
     try {
       _a11yEnsureTurnHeading(row, n);
+      _a11yReorderTurn(row);
       _a11yEnsureBlockHeadings(row);
     } catch (_e) { /* never let decoration break rendering */ }
   }
