@@ -4856,8 +4856,11 @@ function renderModelDropdown(){
   // a11y: Escape must close the list from anywhere inside it, not only from the
   // search field.  Keyboard users who reach the option rows or the custom-model
   // input otherwise had no way out (WCAG 2.1.2).
-  const _ddRoot=document.getElementById('composerModelDropdown');
-  if(_ddRoot&&!_ddRoot.dataset.escBound){
+  // Guarded: the node test harnesses stub `document` with only the handful of
+  // methods they need, so getElementById may be absent here (#3691 driver).
+  const _ddRoot=(typeof document!=='undefined'&&typeof document.getElementById==='function')
+    ? document.getElementById('composerModelDropdown') : null;
+  if(_ddRoot&&_ddRoot.dataset&&!_ddRoot.dataset.escBound&&typeof _ddRoot.addEventListener==='function'){
     _ddRoot.dataset.escBound='1';
     _ddRoot.addEventListener('keydown',e=>{
       if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closeModelDropdown(); }
@@ -4927,13 +4930,15 @@ async function toggleModelDropdown(){
   // Arrow-key navigation and Escape are bound to the search input (see the
   // keydown handler above), so leaving focus on the chip made both dead for
   // keyboard users: arrows did nothing and Escape would not close the list
-  // (WCAG 2.1.1 / 2.4.3).
-  chip.setAttribute('aria-expanded','true');
-  if(mobileAction) mobileAction.setAttribute('aria-expanded','true');
-  setTimeout(()=>{
-    const si=dd.querySelector('.model-search-input');
-    if(si&&typeof si.focus==='function') si.focus();
-  },0);
+  // (WCAG 2.1.1 / 2.4.3).  Capability-guarded for the node harnesses.
+  if(typeof chip.setAttribute==='function') chip.setAttribute('aria-expanded','true');
+  if(mobileAction&&typeof mobileAction.setAttribute==='function') mobileAction.setAttribute('aria-expanded','true');
+  if(typeof dd.querySelector==='function'){
+    setTimeout(()=>{
+      const si=dd.querySelector('.model-search-input');
+      if(si&&typeof si.focus==='function') si.focus();
+    },0);
+  }
 }
 
 function closeModelDropdown(){
@@ -4943,15 +4948,19 @@ function closeModelDropdown(){
   // a11y: hand focus back to the chip that opened the list, but only if focus
   // is still inside the panel we are closing — otherwise we would yank it away
   // from wherever the user has since moved (WCAG 2.4.3).
-  const focusWasInside=!!(dd&&document.activeElement&&dd.contains(document.activeElement));
+  // Every DOM call here is capability-guarded: the node DOM-parentage harnesses
+  // stub chip/dd with plain objects carrying only classList and style (#6080).
+  const focusWasInside=!!(dd&&typeof dd.contains==='function'
+    &&typeof document!=='undefined'&&document.activeElement
+    &&dd.contains(document.activeElement));
   if(dd) dd.classList.remove('open');
   if(chip){
     chip.classList.remove('active');
-    chip.setAttribute('aria-expanded','false');
+    if(typeof chip.setAttribute==='function') chip.setAttribute('aria-expanded','false');
   }
   if(mobileAction){
     mobileAction.classList.remove('active');
-    mobileAction.setAttribute('aria-expanded','false');
+    if(typeof mobileAction.setAttribute==='function') mobileAction.setAttribute('aria-expanded','false');
   }
   if(focusWasInside&&chip&&typeof chip.focus==='function'){
     try{ chip.focus(); }catch(_e){ /* chip removed mid-close */ }

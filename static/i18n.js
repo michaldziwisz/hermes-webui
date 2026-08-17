@@ -193,6 +193,13 @@ const LOCALES = {
     onboarding_step_state_done: 'completed',
     onboarding_step_state_current: 'current step',
     onboarding_escape_hint: 'Setup stays open. To skip it, use the Skip setup button.',
+    // a11y: conversation heading navigation (H / 2 / 3 in screen readers).
+    a11y_turn_you: 'You',
+    a11y_turn_system: 'System',
+    a11y_turn_working: 'working…',
+    a11y_block_reasoning: 'Reasoning',
+    a11y_block_activity: 'Tool activity',
+    a11y_block_worklog: 'Work log',
     clarify_responding: 'Responding\u2026',
     session_attention_approval: (n) => n === 1 ? 'Approval' : `${n} approvals`,
     session_attention_clarify: (n) => n === 1 ? 'Question' : `${n} questions`,

@@ -125,3 +125,207 @@ if (typeof window !== 'undefined') {
   window.a11yLabel = a11yLabel;
   window.a11yAnnounce = a11yAnnounce;
 }
+
+/* ── Nawigacja po naglowkach w zapisie rozmowy ────────────────────────────
+ *
+ * Problem: w dlugiej rozmowie nie da sie szybko przeskakiwac miedzy kolejnymi
+ * wypowiedziami. Czytnik ekranu ma do tego gotowe narzedzie — skok po
+ * naglowkach (H w NVDA, 2/3 po poziomach) — ale zapis rozmowy nie mial ani
+ * jednego naglowka.
+ *
+ * Rozwiazanie: KAZDA wypowiedz dostaje <h2>, a elementy wewnatrz tury
+ * asystenta (rozumowanie, dziennik narzedzi) <h3>. Naglowki sa niewidoczne
+ * wizualnie (klasa sr-only) — uklad graficzny nie zmienia sie ani o piksel,
+ * bo role sa juz pokazane ikona i podpisem.
+ *
+ * Dlaczego przez MutationObserver, a nie w funkcjach renderujacych:
+ * wiadomosci powstaja kilkoma sciezkami (render ustalony, strumien na zywo,
+ * odzysk wierszy z puli, przywracanie tury po przelaczeniu sesji). Dekorowanie
+ * w jednym miejscu po fakcie obejmuje wszystkie te sciezki i nie moze sie
+ * z zadna rozjechac. To tez powod, dla ktorego nie ruszamy
+ * _setLatestAssistantTurnLandmark — jego kontrakt pilnuje test w repozytorium
+ * (tests/test_a11y_transcript_landmarks.py): tura nie moze zawierac naglowka
+ * dodanego TAM ani byc fokusowalna.
+ */
+
+const A11Y_HEAD_MARK = 'a11yHeading';       // dataset marker on our headings
+const A11Y_HEAD_DONE = 'a11yHeadingFor';    // signature of what we labelled
+
+/* Elementy, ktore NIE naleza do wypowiedzi i nie moga trafic do wycinka:
+ * podpis roli (ikona + nazwa), licznik czasu, przyciski akcji, nasze wlasne
+ * naglowki oraz caly dziennik aktywnosci. Bez tego naglowek tury na zywo
+ * brzmial "HHermes Processed 1sProcessed 2s" — czyli litera z ikony, nazwa
+ * i liczniki sekund, zamiast pierwszych slow odpowiedzi (zmierzone). */
+const A11Y_SNIPPET_SKIP = [
+  '.msg-role', '.msg-tps-inline', '.msg-foot', '.msg-actions',
+  '.agent-activity-group', '.tool-call-group', '.tool-worklog',
+  '.thinking-card', '.msg-files', '[data-a11y-heading]',
+];
+
+function _a11ySnippet(row, limit){
+  // Prefer the message body; for assistant turns take the rendered blocks but
+  // drop the activity log, which is not part of the spoken answer.
+  const body = row.querySelector('.msg-body')
+    || row.querySelector('.assistant-turn-blocks')
+    || row;
+  const clone = body.cloneNode(true);
+  for (const sel of A11Y_SNIPPET_SKIP) {
+    for (const el of Array.from(clone.querySelectorAll(sel))) el.remove();
+  }
+  const text = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  const max = limit || 70;
+  return text.length > max ? text.slice(0, max).replace(/\s+\S*$/, '') + '…' : text;
+}
+
+function _a11yRoleLabel(row){
+  const role = (row.dataset && row.dataset.role) || '';
+  if (role === 'user') {
+    return (typeof t === 'function' && t('a11y_turn_you')) || 'You';
+  }
+  if (role === 'assistant' || row.classList.contains('assistant-turn')) {
+    if (typeof assistantDisplayName === 'function') {
+      try { return assistantDisplayName(); } catch (_e) { /* fall through */ }
+    }
+    return 'Hermes';
+  }
+  return (typeof t === 'function' && t('a11y_turn_system')) || 'System';
+}
+
+/* One <h2> per turn: "<n>. <role>: <opening words>".
+ * The number and the opening words are what make the heading list usable —
+ * a list of twenty identical "Hermes" entries would navigate no better than
+ * no headings at all. */
+function _a11yEnsureTurnHeading(row, ordinal){
+  const label = _a11yRoleLabel(row);
+  const snippet = _a11ySnippet(row);
+  // A turn that has not produced prose yet (thinking, running tools) would
+  // otherwise read as a bare "5. Hermes" — say what it is doing instead, so the
+  // heading list stays meaningful mid-answer.
+  let tail = snippet;
+  if (!tail) {
+    const working = row.querySelector('.agent-activity-group, .tool-call-group, .thinking-card');
+    tail = working
+      ? ((typeof t === 'function' && t('a11y_turn_working')) || 'working…')
+      : '';
+  }
+  const text = `${ordinal}. ${label}${tail ? ': ' + tail : ''}`;
+
+  let h = row.firstElementChild;
+  if (!(h && h.dataset && h.dataset[A11Y_HEAD_MARK] === 'turn')) {
+    h = document.createElement('h2');
+    h.className = 'sr-only';
+    h.dataset[A11Y_HEAD_MARK] = 'turn';
+    row.insertBefore(h, row.firstChild);
+  }
+  if (h.dataset[A11Y_HEAD_DONE] !== text) {
+    h.textContent = text;
+    h.dataset[A11Y_HEAD_DONE] = text;
+  }
+}
+
+/* <h3> for the collapsible blocks inside an assistant turn.  These are the
+ * parts users skip past most often, so being able to jump over them at level 3
+ * (and land on the next turn at level 2) is the point.
+ *
+ * Measured lesson: the first attempt put the <h3> inside .thinking-card, but
+ * those cards live inside the COLLAPSED activity log (display:none), so no
+ * screen reader ever saw them — NVDA's heading list showed h2 only.  The
+ * heading has to sit on the element the user can actually reach: the visible
+ * summary button that expands the log.  We label the wrapper, not the card. */
+const A11Y_SUBHEADS = [
+  // Measured against the live DOM, not guessed from class names elsewhere in
+  // the code: the visible wrapper around the activity summary button is
+  // .agent-activity-group (.tool-call-group is only the collapsed body).
+  ['.agent-activity-group', 'a11y_block_activity', 'Tool activity'],
+  ['.tool-call-group', 'a11y_block_activity', 'Tool activity'],
+  ['.tool-worklog', 'a11y_block_worklog', 'Work log'],
+];
+
+/* Heading text for a collapsible block: prefer the block's own summary text
+ * ("Processed", "Reading files", …) so the heading list is informative rather
+ * than nine identical entries. */
+function _a11yBlockLabel(block, fallbackKey, fallbackText){
+  const summary = block.querySelector(
+    '.tool-call-group-summary, .tool-worklog-summary, .tool-group-head, [aria-expanded]');
+  const own = summary ? (summary.textContent || '').replace(/\s+/g, ' ').trim() : '';
+  if (own) return own.length > 60 ? own.slice(0, 60).replace(/\s+\S*$/, '') + '…' : own;
+  return (typeof t === 'function' && t(fallbackKey)) || fallbackText;
+}
+
+function _a11yEnsureBlockHeadings(row){
+  for (const [sel, key, fallback] of A11Y_SUBHEADS) {
+    for (const block of Array.from(row.querySelectorAll(sel))) {
+      // Only decorate blocks the user can actually reach.  A heading buried in
+      // a display:none subtree is invisible to assistive tech and just noise.
+      if (!block.getClientRects().length) continue;
+      const text = _a11yBlockLabel(block, key, fallback);
+      let h = block.firstElementChild;
+      if (!(h && h.dataset && h.dataset[A11Y_HEAD_MARK] === 'block')) {
+        h = document.createElement('h3');
+        h.className = 'sr-only';
+        h.dataset[A11Y_HEAD_MARK] = 'block';
+        block.insertBefore(h, block.firstChild);
+      }
+      if (h.dataset[A11Y_HEAD_DONE] !== text) {
+        h.textContent = text;
+        h.dataset[A11Y_HEAD_DONE] = text;
+      }
+    }
+  }
+}
+
+let _a11yHeadingObserver = null;
+let _a11yHeadingPending = false;
+
+function a11yDecorateConversationHeadings(container){
+  const root = container || document.getElementById('messages');
+  if (!root) return 0;
+  // Visual order is DOM order here, so a straight walk numbers turns the way
+  // they are read.  Live/streaming turns are included: the heading text is
+  // refreshed on every pass, so a turn that starts empty gains its opening
+  // words as soon as they arrive.
+  const rows = Array.from(root.querySelectorAll('.msg-row'));
+  let n = 0;
+  for (const row of rows) {
+    if (row.classList.contains('msg-row-spacer')) continue;
+    n += 1;
+    try {
+      _a11yEnsureTurnHeading(row, n);
+      _a11yEnsureBlockHeadings(row);
+    } catch (_e) { /* never let decoration break rendering */ }
+  }
+  return n;
+}
+
+function a11yInstallConversationHeadings(){
+  const root = document.getElementById('messages');
+  if (!root || _a11yHeadingObserver) return;
+  const run = () => {
+    _a11yHeadingPending = false;
+    // Detach while we mutate, or our own <h2> insertions retrigger the observer.
+    _a11yHeadingObserver.disconnect();
+    try { a11yDecorateConversationHeadings(root); }
+    finally {
+      _a11yHeadingObserver.observe(root, {childList: true, subtree: true, characterData: true});
+    }
+  };
+  _a11yHeadingObserver = new MutationObserver(() => {
+    if (_a11yHeadingPending) return;
+    _a11yHeadingPending = true;
+    // Coalesce a streaming burst into one pass; 250ms keeps the heading list
+    // fresh without re-walking the transcript on every token.
+    setTimeout(run, 250);
+  });
+  _a11yHeadingObserver.observe(root, {childList: true, subtree: true, characterData: true});
+  a11yDecorateConversationHeadings(root);
+}
+
+if (typeof window !== 'undefined') {
+  window.a11yDecorateConversationHeadings = a11yDecorateConversationHeadings;
+  window.a11yInstallConversationHeadings = a11yInstallConversationHeadings;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', a11yInstallConversationHeadings);
+  } else {
+    setTimeout(a11yInstallConversationHeadings, 0);
+  }
+}
