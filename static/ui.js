@@ -11956,6 +11956,36 @@ function _attachCopyButton(header){
 function _transparentEventCountLabel(toolCount){
   return toolCount?`Trace: ${toolCount} ${toolCount===1?'tool':'tools'}`:'Trace';
 }
+/* a11y (WCAG 4.1.2): pasek Full/Output ma role="tab", ale stan aktywnosci
+   istnial wylacznie jako klasa CSS `.active` — czytnik mowil "zakladka Output"
+   i nie mowil, ktora jest wybrana. Ten sam defekt naprawilismy w Settings >
+   Extensions; tu jest jego trzecia kopia (pasek powstaje w 3 miejscach: dwa
+   razy przez createElement i raz w szablonie HTML karty).
+
+   Deklarujemy stan JEDNA funkcja wolana z przelacznika ponizej, zamiast
+   dopisywac atrybuty w trzech miejscach budujacych HTML — inaczej czwarta
+   kopia znowu urodzi sie niema. Panel jest jeden i wspolny dla obu zakladek
+   (tryb "output" tylko ukrywa argumenty w tym samym kontenerze), wiec helper
+   przypina jego nazwe do AKTYWNEJ zakladki. */
+function _syncTransparentDetailTabsA11y(detail, mode){
+  if(!detail||typeof detail.querySelector!=='function') return;
+  const modes=detail.querySelector('.transparent-detail-modes');
+  if(!modes) return;
+  if(typeof a11yTablist!=='function'){
+    // Awaryjnie: bez helpera i tak deklarujemy stan wybrania, bo to jest
+    // wlasciwy defekt. Nawigacja strzalkami wymaga helpera i wtedy jej brak.
+    modes.querySelectorAll('[role="tab"]').forEach(el=>{
+      el.setAttribute('aria-selected', el.getAttribute('data-mode')===mode?'true':'false');
+    });
+    return;
+  }
+  a11yTablist(modes,{
+    label:(typeof t==='function'?t('tool_detail_tabs_aria'):null)||'Tool detail view',
+    activeKey:mode,
+    keyOf:(el)=>el.getAttribute('data-mode'),
+    panelFor:()=>detail
+  });
+}
 function _setTransparentDetailMode(tab, mode){
   const row=tab&&tab.closest?tab.closest('.transparent-event-row'):null;
   const detail=row&&row.querySelector('.tool-card-detail');
@@ -11965,6 +11995,7 @@ function _setTransparentDetailMode(tab, mode){
   detail.querySelectorAll('.transparent-detail-mode').forEach(el=>{
     el.classList.toggle('active', el===tab || el.getAttribute('data-mode')===next);
   });
+  _syncTransparentDetailTabsA11y(detail,next);
 }
 function _setTransparentCardOpen(card, open){
   if(!card) return;
@@ -12041,6 +12072,14 @@ function _materializeTransparentToolDetail(row){
       if(firstChild&&firstChild.parentNode===detail) detail.insertBefore(modes, firstChild);
       else detail.appendChild(modes);
       detail.setAttribute('data-transparent-detail-mode','full');
+    }
+    // POZA warunkiem powyzej: gdy detal przyszedl z gotowego szablonu, ktory JUZ
+    // zawiera pasek zakladek, tamten blok sie nie wykonuje — a pasek z szablonu
+    // jest wlasnie tym, ktory nie ma zadeklarowanego stanu. Synchronizujemy wiec
+    // kazda sciezke budowy, nie tylko te, ktora pasek dokleja.
+    if(detail){
+      _syncTransparentDetailTabsA11y(
+        detail, detail.getAttribute('data-transparent-detail-mode')||'full');
     }
     // Match the eager path's post-processing so highlight/copy/KaTeX/Mermaid land.
     if(typeof _postProcessWithAnchorSuppression==='function'){
@@ -12356,6 +12395,12 @@ function _decorateTransparentEventRow(row, opts){
         if(firstChild&&firstChild.parentNode===detail) detail.insertBefore(modes, firstChild);
         else detail.appendChild(modes);
         detail.setAttribute('data-transparent-detail-mode','full');
+      }
+      // Poza warunkiem: pasek moze pochodzic z szablonu karty (wtedy blok wyzej
+      // sie nie wykonuje), a wlasnie taki pasek nie ma zadeklarowanego stanu.
+      if(detail){
+        _syncTransparentDetailTabsA11y(
+          detail, detail.getAttribute('data-transparent-detail-mode')||'full');
       }
       if(typeof _syncTransparentEventTimestamp==='function') _syncTransparentEventTimestamp(row, header, {toolCall:tc, ts:opts.ts, live:opts.live===true});
       _wireTransparentHeaderToggle(header);

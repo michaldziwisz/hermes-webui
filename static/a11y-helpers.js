@@ -238,8 +238,15 @@ function a11yTablist(tablist, opts){
       if (!panel.id) panel.id = `a11yTabPanel_${Math.random().toString(36).slice(2, 9)}`;
       tab.setAttribute('aria-controls', panel.id);
       if (!panel.getAttribute('role')) panel.setAttribute('role', 'tabpanel');
-      if (!panel.hasAttribute('aria-labelledby')) {
-        if (!tab.id) tab.id = `a11yTab_${Math.random().toString(36).slice(2, 9)}`;
+      if (!tab.id) tab.id = `a11yTab_${Math.random().toString(36).slice(2, 9)}`;
+      // Panel bierze nazwe od AKTYWNEJ zakladki. Ma to znaczenie, gdy kilka
+      // zakladek przelacza zawartosc JEDNEGO kontenera (tak dziala pasek
+      // Full/Output w kartach narzedzi: tryb "output" tylko ukrywa argumenty
+      // w tym samym elemencie). Gdybysmy zostawili nazwe pierwszej zakladki,
+      // czytnik po przejsciu na "Output" nadal mowilby "Full" — czyli panel
+      // klamalby o tym, co pokazuje. Przy osobnych panelach zachowanie jest
+      // takie jak dotad: kazdy panel nazywa sie swoja zakladka.
+      if (czyAktywny || !panel.hasAttribute('aria-labelledby')) {
         panel.setAttribute('aria-labelledby', tab.id);
       }
     }

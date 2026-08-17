@@ -23,7 +23,6 @@ Dwa bledy z budowy tej optymalizacji, ktore te testy zapinaja na stale:
 """
 
 from pathlib import Path
-import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
