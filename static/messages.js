@@ -6119,6 +6119,11 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       // an unnamed, non-focusable container.  A single announcement at the end
       // tells the user the answer is complete; the "Latest Hermes response"
       // region remains the way to read it.
+      // Also clears the "working" run state here, so a missed hideLiveRunStatus
+      // can never leave the status stuck at "Hermes is working" forever.
+      if(typeof a11yRunFinished==='function'){
+        try{ a11yRunFinished(); }catch(_e){ /* best effort */ }
+      }
       if(typeof a11yAnnounce==='function'){
         try{
           const _t=(typeof t==='function' && t('a11y_response_ready'))||'Response ready';

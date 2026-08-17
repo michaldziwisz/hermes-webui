@@ -195,6 +195,27 @@ function _a11yRoleLabel(row){
  * The number and the opening words are what make the heading list usable —
  * a list of twenty identical "Hermes" entries would navigate no better than
  * no headings at all. */
+/* Czy ta tura wlasnie powstaje.
+ *
+ * Pulapka zmierzona: pierwsza wersja pytala o `.thinking-card:not(.done)`, a
+ * karty rozumowania w turach ZAKONCZONYCH tez nie maja klasy `done` (5 z 5
+ * w zamknietej turze). Kazda tura wygladala wiec na trwajaca. Wiarygodne
+ * znaczniki to identyfikator tury na zywo, jawny data-live i kursor strumienia;
+ * stan globalny biegu jest dodatkowa poszlaka, ale tylko dla OSTATNIEJ tury.
+ */
+function _a11yTurnIsLive(row){
+  const liveTurn = document.getElementById('liveAssistantTurn');
+  if (liveTurn && (liveTurn === row || row.contains(liveTurn) || liveTurn.contains(row))) return true;
+  if (row.dataset && row.dataset.live === 'true') return true;
+  if (row.querySelector('.stream-cursor, .typing-indicator, .msg-streaming')) return true;
+  // Bieg trwa i to jest ostatnia tura asystenta w zapisie -> uznajemy za zywa.
+  if (typeof a11yRunIsActive === 'function' && a11yRunIsActive()) {
+    const all = document.querySelectorAll('#messages .msg-row.assistant-turn');
+    if (all.length && all[all.length - 1] === row) return true;
+  }
+  return false;
+}
+
 /* Tekst naglowka tury.
  *
  * Rozne zasady dla obu stron rozmowy, i to jest celowe:
@@ -218,6 +239,14 @@ function _a11yTurnHeadingText(row, ordinal){
     const roleEl = row.querySelector('.msg-role');
     const stamp = roleEl ? (roleEl.getAttribute('title') || '') : '';
     const hhmm = (stamp.match(/(\d{1,2}:\d{2})/) || [])[1] || '';
+    // Tura W TOKU mowi wprost, ze trwa. Bez tego po skoku na naglowek nie bylo
+    // zadnej roznicy miedzy odpowiedzia gotowa a wciaz powstajaca — a to byla
+    // dokladnie skarga uzytkownika ("nie wiem, czy sie zacial").
+    const live = _a11yTurnIsLive(row);
+    if (live) {
+      const working = (typeof t === 'function' && t('a11y_turn_working')) || 'working';
+      return `${ordinal}. ${label}, ${working}`;
+    }
     return `${ordinal}. ${label}${hhmm ? ' ' + hhmm : ''}`;
   }
 
@@ -248,18 +277,10 @@ function _a11yReorderTurn(row){
   const blocks = row.querySelector('.assistant-turn-blocks');
   if (!blocks) return;
 
-  // Tura w toku: nie ruszamy jej kolejnosci.
-  //
-  // Pulapka zmierzona: pierwsza wersja rozpoznawala trwanie po
-  // `.thinking-card:not(.done)` — a karty rozumowania w turach ZAKONCZONYCH
-  // tez nie maja klasy `done` (zmierzone: 5 z 5 kart w zamknietej turze).
-  // Skutek: KAZDA tura wygladala na trwajaca i nic nie zostalo przestawione.
-  // Wiarygodne znaczniki trwania to identyfikator tury na zywo albo obecnosc
-  // wskaznika postepu w dokumencie wskazujacego wlasnie na ten wiersz.
-  const liveTurn = document.getElementById('liveAssistantTurn');
-  const live = (liveTurn && (liveTurn === row || row.contains(liveTurn) || liveTurn.contains(row)))
-    || row.dataset.live === 'true'
-    || row.querySelector('.stream-cursor, .typing-indicator, .msg-streaming') !== null;
+  // Tura w toku: nie ruszamy jej kolejnosci. Dziennik jest wtedy jedyna
+  // informacja o postepie i musi zostac na gorze; przestawianie w trakcie
+  // przeskakiwaloby uklad pod palcami uzytkownika.
+  const live = _a11yTurnIsLive(row);
 
   const kids = Array.from(blocks.children);
   const hasProse = kids.some(el => el.classList.contains('assistant-segment')
@@ -415,4 +436,119 @@ if (typeof window !== 'undefined') {
   } else {
     setTimeout(a11yInstallConversationHeadings, 0);
   }
+}
+
+/* ── Dostepny wskaznik "Hermes pracuje" ────────────────────────────────────
+ *
+ * Zgloszenie uzytkownika: "sesja wyglada jakby wisiala i nie wiem, czy Hermes
+ * sie zacial, czy cos sie wysypalo, nic nie wiem".
+ *
+ * Zmierzona przyczyna: aplikacja WIE, ze trwa praca (przycisk wysylania jest
+ * zablokowany, karta "Thinking" jest widoczna), ale zaden z tych sygnalow nie
+ * dociera do czytnika ekranu:
+ *   - #liveRunStatus     nie ma aria-live, a w trybie zwartym dziennika jest
+ *                        w ogole ukrywany (el.hidden=true),
+ *   - przycisku Stop     nie ma w dokumencie,
+ *   - wskaznika pisania  nie ma,
+ *   - blokada przycisku  jest wylacznie wizualna.
+ * Efekt: cisza nieodroznialna od awarii. WCAG 4.1.3.
+ *
+ * Rozwiazanie w trzech warstwach, celowo oszczedne w mowie:
+ *  1. JEDNORAZOWE ogloszenie "Hermes pracuje" na starcie i "gotowe" na koncu
+ *     (obszar aktywny #a11yAnnouncer, tryb polite),
+ *  2. CICHY stan do sprawdzenia na zadanie: rola status z aria-live=off, wiec
+ *     czytnik go NIE czyta sam, ale uzytkownik moze tam wejsc nawigacja i
+ *     odczytac biezaca czynnosc oraz czas trwania,
+ *  3. NAGLOWEK tury na zywo mowi ", pracuje", zeby po skoku bylo od razu
+ *     jasne, ze to jeszcze nie koniec odpowiedzi.
+ *
+ * Czego swiadomie NIE robimy: nie wlaczamy aria-live na strumieniu tresci ani
+ * na dzienniku. Zalanie czytnika komunikatami co kilkaset milisekund jest
+ * gorsze niz cisza, a kontrakt "zapis rozmowy nie jest obszarem aktywnym"
+ * pilnuje test tests/test_a11y_transcript_landmarks.py.
+ */
+
+let _a11yRunActive = false;
+let _a11yRunStartedAt = null;
+let _a11yRunPollTimer = null;
+
+function _a11yRunStatusHost(){
+  let el = document.getElementById('a11yRunStatus');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'a11yRunStatus';
+  el.className = 'sr-only';
+  el.setAttribute('role', 'status');
+  // aria-live="off": czytnik NIE czyta tego sam. Uzytkownik siega tu, gdy chce
+  // wiedziec, co sie dzieje — bez zalewania go komunikatami.
+  el.setAttribute('aria-live', 'off');
+  const anchor = document.getElementById('a11yAnnouncer');
+  if (anchor && anchor.parentElement) anchor.parentElement.insertBefore(el, anchor.nextSibling);
+  else document.body.appendChild(el);
+  return el;
+}
+
+/* Nazwa biezacej czynnosci, czytana z tego, co produkt juz pokazuje na ekranie
+ * (karta rozumowania / dziennik) — zeby nie wymyslac wlasnego slownika stanow. */
+function _a11yCurrentActivity(){
+  const live = document.getElementById('liveAssistantTurn');
+  const scope = live || document.getElementById('messages');
+  if (!scope) return '';
+  const card = scope.querySelector('.thinking-card, .agent-activity-group, .tool-call-group');
+  if (!card) return '';
+  const head = card.querySelector(
+    '.thinking-card-header, .tool-call-group-summary, .tool-worklog-summary, [aria-expanded]');
+  const raw = (head ? head.textContent : card.textContent) || '';
+  const text = raw.replace(/\s+/g, ' ').trim();
+  return text.length > 80 ? text.slice(0, 80).replace(/\s+\S*$/, '') + '…' : text;
+}
+
+function _a11yRunElapsedText(){
+  if (!_a11yRunStartedAt) return '';
+  const s = Math.max(0, Math.round((Date.now() - _a11yRunStartedAt) / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return `${m} min ${String(s % 60).padStart(2, '0')} s`;
+}
+
+function _a11yRefreshRunStatus(){
+  if (!_a11yRunActive) return;
+  const el = _a11yRunStatusHost();
+  const label = (typeof t === 'function' && t('a11y_run_working')) || 'Hermes is working';
+  const act = _a11yCurrentActivity();
+  const elapsed = _a11yRunElapsedText();
+  const text = `${label}${elapsed ? ' — ' + elapsed : ''}${act ? ' — ' + act : ''}`;
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function a11yRunStarted(){
+  if (_a11yRunActive) return;
+  _a11yRunActive = true;
+  _a11yRunStartedAt = Date.now();
+  _a11yRefreshRunStatus();
+  if (typeof a11yAnnounce === 'function') {
+    a11yAnnounce((typeof t === 'function' && t('a11y_run_started')) || 'Hermes is working');
+  }
+  if (_a11yRunPollTimer) clearInterval(_a11yRunPollTimer);
+  // 5 s: doslownie tylko odswieza CICHY tekst stanu, nic nie mowi.
+  _a11yRunPollTimer = setInterval(_a11yRefreshRunStatus, 5000);
+  try { a11yDecorateConversationHeadings(); } catch (_e) {}
+}
+
+function a11yRunFinished(){
+  if (_a11yRunPollTimer) { clearInterval(_a11yRunPollTimer); _a11yRunPollTimer = null; }
+  if (!_a11yRunActive) return;
+  _a11yRunActive = false;
+  _a11yRunStartedAt = null;
+  const el = document.getElementById('a11yRunStatus');
+  if (el) el.textContent = (typeof t === 'function' && t('a11y_run_idle')) || 'Idle';
+  try { a11yDecorateConversationHeadings(); } catch (_e) {}
+}
+
+function a11yRunIsActive(){ return _a11yRunActive; }
+
+if (typeof window !== 'undefined') {
+  window.a11yRunStarted = a11yRunStarted;
+  window.a11yRunFinished = a11yRunFinished;
+  window.a11yRunIsActive = a11yRunIsActive;
 }

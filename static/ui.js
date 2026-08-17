@@ -14694,6 +14694,11 @@ function placeLiveRunStatusHost(){
   return _moveLiveRunStatusToTurnEnd(el);
 }
 function showLiveRunStatus(sid,opts){
+  // a11y: announce that work has started (WCAG 4.1.3).  Must run BEFORE the
+  // compact-worklog early return below — in that mode the visual status host is
+  // hidden outright, which is exactly the case where a screen reader user was
+  // left with silence indistinguishable from a crash.
+  if(typeof a11yRunStarted==='function') a11yRunStarted();
   if(typeof isCompactWorklogMode==='function'&&isCompactWorklogMode()){
     _liveRunStatusSessionId=sid;
     _liveRunStatusTokens=opts&&opts.tokens||null;
@@ -14749,6 +14754,9 @@ function _syncLiveRunStatusAfterRender(){
 }
 function hideLiveRunStatus(sid){
   if(sid&&_liveRunStatusSessionId&&sid!==_liveRunStatusSessionId) return;
+  // a11y: work finished — stop the quiet status poller and refresh the headings
+  // so the live turn stops reading as "working".
+  if(typeof a11yRunFinished==='function') a11yRunFinished();
   const el=$('liveRunStatus');
   if(el){el.hidden=true;el.innerHTML='';}
   _clearLiveRunStatusTimer(sid||_liveRunStatusSessionId);

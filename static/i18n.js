@@ -196,7 +196,10 @@ const LOCALES = {
     // a11y: conversation heading navigation (H / 2 / 3 in screen readers).
     a11y_turn_you: 'You',
     a11y_turn_system: 'System',
-    a11y_turn_working: 'working…',
+    a11y_turn_working: 'working',
+    a11y_run_started: 'Hermes is working',
+    a11y_run_working: 'Hermes is working',
+    a11y_run_idle: 'Idle',
     a11y_block_reasoning: 'Reasoning',
     a11y_block_activity: 'Tool activity',
     a11y_block_worklog: 'Work log',
