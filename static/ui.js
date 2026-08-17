@@ -4165,16 +4165,22 @@ function _mountSearchableModelSelect(opts={}){
   const listedSelection=listedChoiceIds.has(selectedValue) ? selectedValue : '';
   const customSelection=listedSelection ? '' : selectedValue;
   let lastListedValue=listedSelection||(choices[0]?choices[0].id:'');
+  // a11y: every control here needs an accessible name.  Placeholders are not
+  // names — a screen reader user tabbing into these fields used to hear only
+  // "edit, blank" (WCAG 1.3.1 / 3.3.2 / 4.1.2).
+  const searchLabel=esc(t('model_search_label')||t('model_search_placeholder')||'Search models');
+  const listLabel=esc(t('model_list_label')||'Model');
+  const customLabel=esc(t('model_custom_label')||'Custom model ID');
   root.innerHTML=
     `<div class="model-search-row">`+
-      `<input class="model-search-input" type="text" placeholder="${esc(t('model_search_placeholder')||'Search models…')}" spellcheck="false" autocomplete="off">`+
-      `<button class="model-search-clear" title="Clear search">${li('x',10)}</button>`+
+      `<input class="model-search-input" type="text" aria-label="${searchLabel}" placeholder="${esc(t('model_search_placeholder')||'Search models…')}" spellcheck="false" autocomplete="off">`+
+      `<button class="model-search-clear" type="button" aria-label="${esc(t('model_search_clear')||'Clear search')}" title="Clear search">${li('x',10)}</button>`+
     `</div>`+
-    `<select ${selectId?`id="${esc(selectId)}"`:''}></select>`+
-    `<div class="model-group model-custom-sep">${esc(t('model_custom_label')||'Custom model ID')}</div>`+
+    `<select ${selectId?`id="${esc(selectId)}"`:''} aria-label="${listLabel}"></select>`+
+    `<div class="model-group model-custom-sep">${customLabel}</div>`+
     `<div class="model-custom-row">`+
-      `<input ${customInputId?`id="${esc(customInputId)}"`:''} class="model-custom-input" type="text" placeholder="${esc(t('model_custom_placeholder')||'e.g. openai/gpt-5.4')}" spellcheck="false" autocomplete="off">`+
-      `<button class="model-custom-btn" title="Use this model">${li('plus',12)}</button>`+
+      `<input ${customInputId?`id="${esc(customInputId)}"`:''} class="model-custom-input" type="text" aria-label="${customLabel}" placeholder="${esc(t('model_custom_placeholder')||'e.g. openai/gpt-5.4')}" spellcheck="false" autocomplete="off">`+
+      `<button class="model-custom-btn" type="button" aria-label="${esc(t('model_custom_use')||'Use this model')}" title="Use this model">${li('plus',12)}</button>`+
     `</div>`;
   const searchInput=root.querySelector('.model-search-input');
   const clearButton=root.querySelector('.model-search-clear');
@@ -4816,6 +4822,19 @@ function renderModelDropdown(){
     if(idx<0||idx>=rows.length) return;
     const row=rows[idx];
     row.classList.add('is-highlighted');
+    // a11y: the highlight is a CSS class, which no screen reader can perceive.
+    // Expose the highlighted row through aria-activedescendant so arrowing
+    // through the list actually announces the model (WCAG 4.1.2).
+    if(!row.id) row.id='model-opt-'+idx+'-'+Math.random().toString(36).slice(2,7);
+    row.setAttribute('role','option');
+    for(const r of rows){ if(r!==row) r.setAttribute('aria-selected','false'); }
+    row.setAttribute('aria-selected','true');
+    if(_si){
+      _si.setAttribute('role','combobox');
+      _si.setAttribute('aria-expanded','true');
+      _si.setAttribute('aria-autocomplete','list');
+      _si.setAttribute('aria-activedescendant',row.id);
+    }
     if(typeof row.scrollIntoView==='function') row.scrollIntoView({block:'nearest'});
   };
   _si.addEventListener('keydown',e=>{
@@ -4834,6 +4853,16 @@ function renderModelDropdown(){
     }
   });
   _si.addEventListener('click',e=>e.stopPropagation());
+  // a11y: Escape must close the list from anywhere inside it, not only from the
+  // search field.  Keyboard users who reach the option rows or the custom-model
+  // input otherwise had no way out (WCAG 2.1.2).
+  const _ddRoot=document.getElementById('composerModelDropdown');
+  if(_ddRoot&&!_ddRoot.dataset.escBound){
+    _ddRoot.dataset.escBound='1';
+    _ddRoot.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closeModelDropdown(); }
+    });
+  }
   _sc.onclick=()=>{ _si.value=''; _filterModels(''); _si.focus(); };
   _sc.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){ _si.value=''; _filterModels(''); _si.focus(); e.preventDefault(); }});
   const _applyCustom=()=>{const v=_ci.value.trim();if(!v)return;selectFromDropdown(v,null);_ci.value='';};
@@ -4894,15 +4923,39 @@ async function toggleModelDropdown(){
   chip.classList.add('active');
   const mobileAction=$('composerMobileModelAction');
   if(mobileAction) mobileAction.classList.add('active');
+  // a11y: move focus into the panel and expose the expanded state.
+  // Arrow-key navigation and Escape are bound to the search input (see the
+  // keydown handler above), so leaving focus on the chip made both dead for
+  // keyboard users: arrows did nothing and Escape would not close the list
+  // (WCAG 2.1.1 / 2.4.3).
+  chip.setAttribute('aria-expanded','true');
+  if(mobileAction) mobileAction.setAttribute('aria-expanded','true');
+  setTimeout(()=>{
+    const si=dd.querySelector('.model-search-input');
+    if(si&&typeof si.focus==='function') si.focus();
+  },0);
 }
 
 function closeModelDropdown(){
   const dd=$('composerModelDropdown');
   const chip=$('composerModelChip');
   const mobileAction=$('composerMobileModelAction');
+  // a11y: hand focus back to the chip that opened the list, but only if focus
+  // is still inside the panel we are closing — otherwise we would yank it away
+  // from wherever the user has since moved (WCAG 2.4.3).
+  const focusWasInside=!!(dd&&document.activeElement&&dd.contains(document.activeElement));
   if(dd) dd.classList.remove('open');
-  if(chip) chip.classList.remove('active');
-  if(mobileAction) mobileAction.classList.remove('active');
+  if(chip){
+    chip.classList.remove('active');
+    chip.setAttribute('aria-expanded','false');
+  }
+  if(mobileAction){
+    mobileAction.classList.remove('active');
+    mobileAction.setAttribute('aria-expanded','false');
+  }
+  if(focusWasInside&&chip&&typeof chip.focus==='function'){
+    try{ chip.focus(); }catch(_e){ /* chip removed mid-close */ }
+  }
   // If the phone path reparented the menu onto <body>, put it back in the
   // footer and clear the fixed-position inline styles so the DOM returns to its
   // baseline shape and the next desktop open anchors correctly (#6080).

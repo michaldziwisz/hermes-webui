@@ -6112,6 +6112,19 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       _cancelThrottledSnapshotTimer();
       const _doneData=JSON.parse(e.data);
       const _doneEvent=e;
+      // a11y: one-shot "response ready" announcement (WCAG 4.1.3).
+      // Deliberately NOT a live region on the transcript itself: streaming
+      // tokens into aria-live would flood the screen reader, and
+      // tests/test_a11y_transcript_landmarks.py enforces that #messages stays
+      // an unnamed, non-focusable container.  A single announcement at the end
+      // tells the user the answer is complete; the "Latest Hermes response"
+      // region remains the way to read it.
+      if(typeof a11yAnnounce==='function'){
+        try{
+          const _t=(typeof t==='function' && t('a11y_response_ready'))||'Response ready';
+          a11yAnnounce(_t);
+        }catch(_e){ /* announcement is best-effort, never break the stream */ }
+      }
       const _finishDone=()=>{
         // Bug A fix: cancel any pending rAF and mark stream finalized before
         // the DOM is settled by renderMessages, so no trailing token/reasoning rAF

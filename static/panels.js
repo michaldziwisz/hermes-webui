@@ -3481,6 +3481,27 @@ function _kanbanPopulateParentsDatalist(){
 }
 
 function _trapModalFocus(modalEl){
+  // a11y: delegate to the shared helper so all modals behave identically.
+  // The previous local implementation trapped Tab but never restored focus to
+  // the element that opened the modal — closing a Kanban dialog with Escape
+  // dropped focus onto <body>, leaving keyboard and screen reader users with no
+  // position in the page (WCAG 2.4.3).  appDialog already restored focus; these
+  // twin dialogs did not, which is exactly the "fix the pattern, not the
+  // instance" case.
+  if (!modalEl) return () => {};
+  if (typeof a11yTrapFocus === 'function') {
+    return a11yTrapFocus(modalEl, {
+      // Background isolation is handled by the overlay itself for these
+      // dialogs; keep the previous behaviour and only manage focus.
+      isolateBackground: false,
+      restoreFocus: true,
+      autofocus: false,
+    });
+  }
+  return _trapModalFocusFallback(modalEl);
+}
+
+function _trapModalFocusFallback(modalEl){
   if (!modalEl) return () => {};
   const selector = 'a[href], button, textarea, input, select, summary, [tabindex]:not([tabindex="-1"])';
   const collect = () => {
@@ -12614,9 +12635,18 @@ async function _loadAuxiliaryModels(){
    label.innerHTML=esc(task.label||task.task)+'<div style="font-size:10px;color:var(--muted);font-weight:400">'+esc(task.description||'')+'</div>';
    row.appendChild(label);
 
+   // a11y: the task name lives in a sibling <div>, not a <label>, so neither
+   // select inherits it.  Without an explicit name a screen reader announces
+   // only the current value ("Palantir Claude, combo box") and the user cannot
+   // tell which task it configures, nor provider from model (WCAG 1.3.1/4.1.2).
+   const auxTaskName=task.label||task.task;
+   const provAria=(t('settings_aux_provider_aria')||'{task} — provider').replace('{task}',auxTaskName);
+   const modelAria=(t('settings_aux_model_aria')||'{task} — model').replace('{task}',auxTaskName);
+
    // Provider select
    const provSel=document.createElement('select');
    provSel.id='aux-prov-'+task.task;
+   provSel.setAttribute('aria-label',provAria);
    provSel.style.cssText=_auxSelectStyle();
    _buildAuxProviderOptions(provSel,_auxProviders,cfg.provider);
    provSel.addEventListener('change',()=>_onAuxProviderChange(task.task,_auxProviders));
@@ -12625,6 +12655,7 @@ async function _loadAuxiliaryModels(){
    // Model select
    const modelSel=document.createElement('select');
    modelSel.id='aux-model-'+task.task;
+   modelSel.setAttribute('aria-label',modelAria);
    modelSel.style.cssText=_auxSelectStyle();
    _buildAuxModelOptions(modelSel,cfg.provider,_auxProviders,cfg.model);
    modelSel.addEventListener('change',()=>_onAuxModelChange(task.task));
