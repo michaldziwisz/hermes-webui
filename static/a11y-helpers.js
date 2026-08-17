@@ -189,6 +189,87 @@ function a11yAsLink(el, href, opts){
   return el;
 }
 
+/* Zestaw zakladek (tablist) — JEDEN mechanizm dla wszystkich pasków zakladek.
+ *
+ * Zmierzony defekt (18.08.2026): pasek Settings > Extensions mial role="tablist"
+ * i trzy role="tab", ale ZERO aria-selected, ZERO aria-controls i tablist bez
+ * nazwy. Czytnik mowil wiec "zakladka Gallery" i NIE MOWIL, ktora jest aktywna —
+ * a stan aktywnosci istnial tylko jako klasa CSS (extensions-tab-active), czyli
+ * informacja dostepna wylacznie dla osoby widzacej. WCAG 4.1.2.
+ *
+ * Sasiedni pasek (workspace-panel-tabs) byl zrobiony poprawnie w HTML, wiec to
+ * jest rozjazd DWOCH KOPII tego samego wzorca — dokladnie ta klasa bledu, ktora
+ * naprawialismy juz przy klikalnych elementach panelu. Zamiast dopisac brakujace
+ * atrybuty w trzecim miejscu, wprowadzamy wspolny helper: kazdy pasek dostaje
+ * nazwe, kazdy tab aria-selected/aria-controls, panele role="tabpanel", a caly
+ * zestaw nawigacje strzalkami z jednym tabem w kolejnosci Tab (roving tabindex).
+ *
+ * Strzalki sa czescia KONTRAKTU roli tab: skoro mowimy czytnikowi "to zakladki",
+ * uzytkownik probuje strzalek i bez nich zostaje w pulapce (ARIA APG: Tabs).
+ *
+ * Wywolanie jest IDEMPOTENTNE — mozna je powtarzac po kazdym przelaczeniu, bo
+ * stan wynika z przekazanego `activeKey`, a nasluch klawiatury zaklada sie raz.
+ */
+function a11yTablist(tablist, opts){
+  if (!tablist || typeof tablist.querySelectorAll !== 'function') return tablist;
+  const options = opts || {};
+  const taby = Array.from(tablist.querySelectorAll('[role="tab"]'));
+  if (!taby.length) return tablist;
+  if (options.label) a11yLabel(tablist, options.label);
+  if (!tablist.getAttribute('role')) tablist.setAttribute('role', 'tablist');
+
+  const kluczTabu = (el) => (typeof options.keyOf === 'function' ? options.keyOf(el) : null);
+  const aktywny = options.activeKey;
+
+  taby.forEach((tab) => {
+    const klucz = kluczTabu(tab);
+    // Gdy wolajacy nie umie podac klucza, opieramy sie na klasie aktywnosci —
+    // ale NIGDY nie zostawiamy aria-selected niezadeklarowanego.
+    const czyAktywny = (klucz !== null && aktywny !== undefined)
+      ? String(klucz) === String(aktywny)
+      : (typeof options.isActive === 'function' ? !!options.isActive(tab) : false);
+    tab.setAttribute('aria-selected', czyAktywny ? 'true' : 'false');
+    // Roving tabindex: tylko aktywny tab jest w kolejnosci Tab, po zestawie
+    // chodzi sie strzalkami. Bez tego uzytkownik klawiatury musi przejsc przez
+    // KAZDA zakladke, zeby wyjsc z paska.
+    tab.setAttribute('tabindex', czyAktywny ? '0' : '-1');
+    const panel = (typeof options.panelFor === 'function') ? options.panelFor(tab) : null;
+    if (panel) {
+      if (!panel.id) panel.id = `a11yTabPanel_${Math.random().toString(36).slice(2, 9)}`;
+      tab.setAttribute('aria-controls', panel.id);
+      if (!panel.getAttribute('role')) panel.setAttribute('role', 'tabpanel');
+      if (!panel.hasAttribute('aria-labelledby')) {
+        if (!tab.id) tab.id = `a11yTab_${Math.random().toString(36).slice(2, 9)}`;
+        panel.setAttribute('aria-labelledby', tab.id);
+      }
+    }
+  });
+
+  if (tablist.dataset && tablist.dataset.a11yTablistKeys === '1') return tablist;
+  if (tablist.dataset) tablist.dataset.a11yTablistKeys = '1';
+  tablist.addEventListener('keydown', (ev) => {
+    const kolejnosc = Array.from(tablist.querySelectorAll('[role="tab"]'));
+    const teraz = kolejnosc.indexOf(document.activeElement);
+    if (teraz < 0) return;
+    let cel = null;
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') cel = (teraz + 1) % kolejnosc.length;
+    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') cel = (teraz - 1 + kolejnosc.length) % kolejnosc.length;
+    else if (ev.key === 'Home') cel = 0;
+    else if (ev.key === 'End') cel = kolejnosc.length - 1;
+    else return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const docelowy = kolejnosc[cel];
+    if (!docelowy) return;
+    // Wzorzec "automatic activation": przejscie strzalka OD RAZU przelacza panel,
+    // bo tak dziala reszta zakladek w tej aplikacji (klik = przelaczenie).
+    docelowy.setAttribute('tabindex', '0');
+    if (typeof docelowy.focus === 'function') docelowy.focus();
+    if (typeof docelowy.click === 'function') docelowy.click();
+  });
+  return tablist;
+}
+
 if (typeof window !== 'undefined') {
   window.a11yTrapFocus = a11yTrapFocus;
   window.a11ySyncPressedState = a11ySyncPressedState;
@@ -196,6 +277,7 @@ if (typeof window !== 'undefined') {
   window.a11yAnnounce = a11yAnnounce;
   window.a11yAsButton = a11yAsButton;
   window.a11yAsLink = a11yAsLink;
+  window.a11yTablist = a11yTablist;
 }
 
 /* ── Nawigacja po naglowkach w zapisie rozmowy ────────────────────────────

@@ -5889,15 +5889,35 @@ main.main > #mainPlugin{display:none;}
 .session-item.menu-open .session-source-chip {
   display: none;
 }
-/* Source-specific colors for gateway sessions */
-.session-item.cli-session[data-source-key="telegram"] { border-left-color: rgba(0, 136, 204, 0.55); }
-.session-source-chip[data-source-key="telegram"] { color: rgba(0, 136, 204, 0.85); background: rgba(0, 136, 204, 0.12); }
-.session-item.cli-session[data-source-key="discord"] { border-left-color: #5865F2; }
-.session-source-chip[data-source-key="discord"] { color: #5865F2; background: rgba(88, 101, 242, 0.12); }
-.session-item.cli-session[data-source-key="slack"] { border-left-color: #4A154B; }
-.session-source-chip[data-source-key="slack"] { color: #4A154B; background: rgba(74, 21, 75, 0.12); }
-.session-item.cli-session[data-source-key="claude_code"] { border-left-color: rgba(217, 119, 6, 0.65); }
-.session-source-chip[data-source-key="claude_code"] { color: rgba(217, 119, 6, 0.85); background: rgba(217, 119, 6, 0.12); }
+/* Source-specific colors for gateway sessions.
+   ONE mechanism, per-source DATA — not four copies of the same declaration.
+
+   a11y (WCAG 1.4.3): the chip text is 9px, so it needs 4.5:1. Measured against
+   the real sidebar row, every brand hue failed at full saturation:
+     telegram 2.92:1   discord 2.99:1   slack 1.10:1   claude_code 3.40:1
+   Slack's #4A154B was effectively invisible — 1.1:1 is barely distinguishable
+   from the background at all.
+
+   The fix keeps each brand recognisable instead of flattening them to grey: the
+   shared rule below lightens the brand hue toward white by exactly as much as
+   that hue needs, so the chip still reads "Telegram blue" / "Slack aubergine".
+   --source-tint-keep is how much of the brand hue survives; the default is the
+   value the DARKEST hue needs, so a newly added source is legible before anyone
+   measures it (fail safe, not fail pretty). Add a source by declaring its hue;
+   only override the keep value if a measurement shows it can carry more.
+   Note the hues are OPAQUE here on purpose — alpha on text multiplies against
+   the background and silently eats contrast, which is how these got so low. */
+.session-source-chip[data-source-key] {
+  color: color-mix(in srgb, var(--source-hue) var(--source-tint-keep, 50%), white);
+  background: color-mix(in srgb, var(--source-hue) 12%, transparent);
+}
+.session-item.cli-session[data-source-key] {
+  border-left-color: color-mix(in srgb, var(--source-hue) 55%, transparent);
+}
+[data-source-key="telegram"]    { --source-hue: #0088CC; --source-tint-keep: 78%; }
+[data-source-key="discord"]     { --source-hue: #5865F2; --source-tint-keep: 74%; }
+[data-source-key="slack"]       { --source-hue: #4A154B; --source-tint-keep: 50%; }
+[data-source-key="claude_code"] { --source-hue: #D97706; --source-tint-keep: 88%; }
 
 /* ═══════════════════════════════════════════════════════════════════
    Messages redesign — additive overrides for the transcript area.

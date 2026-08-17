@@ -8027,6 +8027,10 @@ function switchSettingsSection(name,opts){
     if(section==='plugins') loadPluginsPanel();
     if(section==='extensions') loadExtensionsPanel();
   }
+  // a11y: the tab bar becomes visible HERE, so its ARIA contract is declared
+  // here — outside the skipLazyLoad branch, because arriving from settings
+  // search shows the same bar without running the loader.
+  if(section==='extensions') _extensionsSyncTabsA11y();
   if(opts&&opts.fromSidebarItem)_closeMobileSidebarAfterPanelSelection();
 }
 
@@ -10390,6 +10394,29 @@ function handleExtensionStorageClear(btn){
   showToast('Extension storage cleared in this browser.');
 }
 
+/* a11y (WCAG 4.1.2): the active extensions tab was expressed ONLY as a CSS class,
+   so a screen reader said "tab Gallery" without saying which tab is current.
+   One entry point for BOTH paths — first paint of the panel and every later
+   switch — because a contract applied on only one path drifts on the other:
+   entering Settings without clicking would have left the tabs undeclared.
+
+   Callers must invoke this BEFORE any early return: the first version of this
+   fix sat after `if(!target) return;` in loadExtensionsPanel, where target is the
+   DIAGNOSTICS pane, so opening the Gallery tab bailed out before the attributes
+   were set and the tabs still announced no selection. Tab-bar accessibility does
+   not depend on whether one of its panes happens to have rendered. */
+function _extensionsSyncTabsA11y(){
+  if(typeof a11yTablist!=='function') return;
+  const bar=document.querySelector('.extensions-tab-bar');
+  if(!bar) return;
+  a11yTablist(bar,{
+    label:(typeof t==='function'&&t('settings_extensions_tabs_aria'))||'Extension views',
+    activeKey:_extensionsActiveTab,
+    keyOf:btn=>btn.dataset.extensionsTab,
+    panelFor:btn=>document.querySelector(`[data-extensions-pane="${btn.dataset.extensionsTab}"]`),
+  });
+}
+
 async function loadExtensionsPanel(opts){
   const target=$('extensionsDiagnostics');
   const copyBtn=$('extensionsCopyDiagnosticsBtn');
@@ -10426,6 +10453,10 @@ function switchExtensionsTab(tab){
   document.querySelectorAll('[data-extensions-pane]').forEach(pane=>{
     pane.hidden=pane.dataset.extensionsPane!==tab;
   });
+  // a11y: same single entry point as the panel's first paint (see
+  // _extensionsSyncTabsA11y) — the ARIA state is derived from _extensionsActiveTab,
+  // so it cannot drift from the CSS class that drives the visuals.
+  _extensionsSyncTabsA11y();
   if(tab==='diagnostics') loadExtensionsPanel({preserveExisting:true});
   if(tab==='gallery'&&!_extensionsGalleryLoaded) loadExtensionsGallery();
 }
