@@ -1688,6 +1688,15 @@ async function _switchProfileForSessionLoad(profile){
 
 async function loadSession(sid){
   const opts = arguments[1] || {};
+  // a11y: wchodzimy do INNEJ rozmowy, wiec stan "Hermes pracuje" z poprzedniej
+  // przestaje obowiazywac. Gasimy go TU, przy samym przelaczeniu, bo watchdog
+  // obcej sesji sprawdza adres dopiero w swoim cyklu (co 5 s) i przez ten czas
+  // czytnik ekranu mowilby o pracy, ktorej w tej rozmowie nie ma.
+  // Zmierzone: po klikniecu innego wiersza cichy status trzymal
+  // "Hermes is working - 5 s - Processed" z poprzedniej rozmowy.
+  if(typeof a11yRunIsActive==='function' && typeof a11yRunFinished==='function'){
+    try{ if(a11yRunIsActive()) a11yRunFinished(); }catch(_e){ /* best effort */ }
+  }
   // Resolve canonical lineage SID BEFORE both the direct and sidebar preload
   // notifications so extensions always see the canonical session id, not the
   // raw sidebar click id (which may differ after lineage folding).
@@ -7793,6 +7802,10 @@ function renderSessionListFromCache(){
     allChip.className='project-chip'+(!_activeProject?' active':'');
     allChip.textContent='All';
     allChip.onclick=()=>{_setActiveProjectFilter(null);};
+    // Chipy filtrow to grupa przelacznikow: aktywny byl oznaczony WYLACZNIE
+    // klasa CSS, wiec czytnik ekranu nie mowil, po czym lista jest filtrowana.
+    // capability-guarded: harnessy node podstawiaja atrapy DOM bez tych metod.
+    if(typeof a11yAsButton==='function') a11yAsButton(allChip,{pressed:!_activeProject,label:'All conversations'});
     bar.appendChild(allChip);
     // "Unassigned" chip — only when there are sessions with no project to
     // filter to. Hidden in the common case where every session is already
@@ -7803,6 +7816,7 @@ function renderSessionListFromCache(){
       noneChip.textContent='Unassigned';
       noneChip.title='Show conversations not yet assigned to a project';
       noneChip.onclick=()=>{_setActiveProjectFilter(NO_PROJECT_FILTER);};
+      if(typeof a11yAsButton==='function') a11yAsButton(noneChip,{pressed:_activeProject===NO_PROJECT_FILTER,label:'Unassigned conversations'});
       bar.appendChild(noneChip);
     }
     // Project chips
@@ -7870,6 +7884,7 @@ function renderSessionListFromCache(){
         chip.classList.remove('long-pressing');
       },{passive:true});
       if(window._projectQuickCreate) _attachProjectQuickCreateButton(chip,p);
+      if(typeof a11yAsButton==='function') a11yAsButton(chip,{pressed:p.project_id===_activeProject,label:'Project '+p.name});
       bar.appendChild(chip);
     }
     // Create button
@@ -7892,12 +7907,14 @@ function renderSessionListFromCache(){
     pfToggle.style.cssText='font-size:10px;padding:4px 10px;color:var(--muted);cursor:pointer;text-align:center;opacity:.7;';
     pfToggle.textContent='Show '+otherProfileCount+' from other profiles';
     pfToggle.onclick=()=>{_setShowAllProfiles(true);renderSessionList({deferWhileInteracting:false});};
+    if(typeof a11yAsButton==='function') a11yAsButton(pfToggle);
     list.appendChild(pfToggle);
   } else if(_showAllProfiles){
     const pfToggle=document.createElement('div');
     pfToggle.style.cssText='font-size:10px;padding:4px 10px;color:var(--muted);cursor:pointer;text-align:center;opacity:.7;';
     pfToggle.textContent='Show active profile only';
     pfToggle.onclick=()=>{_setShowAllProfiles(false);renderSessionList({deferWhileInteracting:false});};
+    if(typeof a11yAsButton==='function') a11yAsButton(pfToggle);
     list.appendChild(pfToggle);
   }
   // Show/hide archived toggle if there are archived sessions. Archived rows
@@ -7911,6 +7928,7 @@ function renderSessionListFromCache(){
       if(_showArchived) _archivedRowsLoadedLimit=SESSION_ARCHIVED_PAGE_SIZE;
       renderSessionList();
     };
+    if(typeof a11yAsButton==='function') a11yAsButton(toggle,{pressed:_showArchived});
     list.appendChild(toggle);
   }
   // Empty state for active project filter
@@ -8031,6 +8049,10 @@ function renderSessionListFromCache(){
       _saveCollapsed();
       renderSessionListFromCache();
     };
+    // Naglowek grupy zwija i rozwija liste — to przycisk, nie ozdoba. Stan
+    // podajemy przez aria-expanded, bo obrocony daszek widzi tylko wzrok.
+    // capability-guarded: harnessy node podstawiaja atrapy DOM bez tych metod.
+    if(typeof a11yAsButton==='function') a11yAsButton(hdr,{expanded:!isGroupCollapsed,label:g.label});
     wrapper.appendChild(hdr);
     let groupTopPad=0;
     let groupBottomPad=0;
@@ -8077,6 +8099,7 @@ function renderSessionListFromCache(){
         );
         renderSessionList();
       };
+      if(typeof a11yAsButton==='function') a11yAsButton(more);
       list.appendChild(more);
     }
   }
@@ -8085,6 +8108,7 @@ function renderSessionListFromCache(){
     const toggleBtn=document.createElement('div');toggleBtn.className='session-select-toggle';
     toggleBtn.textContent=t('session_select_mode');
     toggleBtn.onclick=(e)=>{e.stopPropagation();toggleSessionSelectMode();};
+    if(typeof a11yAsButton==='function') a11yAsButton(toggleBtn,{label:t('session_select_mode')});
     list.appendChild(toggleBtn);
   }
   // Refresh FLIP and queued archive/delete reflow both drive
@@ -8138,6 +8162,12 @@ function renderSessionListFromCache(){
       const cbWrapper=document.createElement('label');cbWrapper.className='session-select-cb-wrapper';
       const cb=document.createElement('input');cb.type='checkbox';cb.className='session-select-cb';
       cb.dataset.sid=s.session_id;cb.checked=_selectedSessions.has(s.session_id);
+      // Pole wyboru bez nazwy czytnik ekranu oglasza jako gole "pole wyboru,
+      // nieoznaczone" — przy kilku wierszach nie da sie ustalic, ktorej rozmowy
+      // dotyczy (WCAG 4.1.2). Nazwa musi wskazywac konkretna rozmowe. Etykieta
+      // nie moze byc widoczna, bo uklad graficzny pokazuje sam kwadracik.
+      const cbNazwa=(typeof t==='function'?t('session_batch_select_one')||'Select conversation':'Select conversation');
+      cb.setAttribute('aria-label',cbNazwa+': '+(cleanTitle||'Untitled'));
       cb.onchange=(e)=>{e.stopPropagation();setSessionSelected(s.session_id,cb.checked);};
       cb.onclick=(e)=>{e.stopPropagation();};
       cb.onpointerup=(e)=>{e.stopPropagation();};
@@ -8174,13 +8204,47 @@ function renderSessionListFromCache(){
       branchInd.title=_sessionForkTooltip(parentLabel);
       titleRow.appendChild(branchInd);
     }
-    const title=document.createElement('span');
+    // Tytul jest PRAWDZIWYM linkiem (<a href="/session/<id>">), nie divem z
+    // obsluga klikniecia. Powod: wiersz listy przenosi do innej rozmowy, wiec
+    // czytnik ekranu ma o tym powiedziec ("link"), a uzytkownik ma tu dojsc
+    // tabulacja i nawigacja po linkach (WCAG 4.1.2 nazwa/rola/wartosc oraz
+    // 2.1.1 dostep z klawiatury). Jako <a href> dziala tez bez naszego kodu:
+    // Ctrl+klik i srodkowy przycisk otwieraja nowa karte, menu kontekstowe
+    // przegladarki pozwala skopiowac adres rozmowy.
+    // Elementem pozostaje TYTUL, a nie caly wiersz, bo wiersz zawiera wlasne
+    // kontrolki (przycisk akcji, pole wyboru) — <a> nie moze zawierac
+    // przyciskow, a zagniezdzona kontrolka w linku jest nieosiagalna.
+    const title=document.createElement('a');
     title.className='session-title';
+    try{ title.setAttribute('href',_sessionUrlForSid(s.session_id)); }catch(_e){ /* brak historii/URL — zostaje sam tekst */ }
+    // Link w wierszu z gestem przesuniecia: wlasne przeciaganie linku przez
+    // przegladarke rozjezdza sie ze swipe'em, wiec je wylaczamy.
+    title.setAttribute('draggable','false');
+    if(isActive) title.setAttribute('aria-current','page');
     const displayTitle=cleanTitle||'Untitled';
     const titleMatched=Boolean(searchQueryRaw&&displayTitle.toLowerCase().includes(searchQueryRaw.toLowerCase()));
     if(titleMatched) _appendHighlightedText(title,displayTitle,searchQueryRaw,'session-search-hit');
     else title.textContent=displayTitle;
     title.title=_sessionFullTitleTooltip(rawTitle,cleanTitle,s);
+    // Aktywacja linku tytulu. Trzy drogi, celowo rozdzielone:
+    // 1. Ctrl/Cmd/Shift/Alt/srodkowy przycisk — NIE ruszamy niczego, niech
+    //    przegladarka otworzy rozmowe w nowej karcie/oknie. Tego wlasnie
+    //    uzytkownik oczekuje od linku i tego nie da sie zrobic na divie.
+    // 2. Klawiatura (Enter na skupionym linku daje click z detail===0) —
+    //    otwieramy w tej karcie sciezka aplikacji, bez przeladowania.
+    // 3. Zwykly klik myszka/palcem — tu nawigacje ma juz gest wiersza
+    //    (onpointerup/touchend, wraz z rozpoznaniem dwukliku i przesuniecia),
+    //    wiec tylko wstrzymujemy domyslne przejscie przegladarki, zeby nie
+    //    przeladowac calej aplikacji.
+    title.addEventListener('click',(e)=>{
+      if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button===1) return;
+      e.preventDefault();
+      if(e.detail===0){
+        e.stopPropagation();
+        if(_renamingSid) return;
+        void _openSidebarSession(s);
+      }
+    });
     const tsMs=_sessionTimestampMs(s);
     const ts=document.createElement('span');
     const hasAttentionState=isStreaming||hasUnread||Boolean(attention);

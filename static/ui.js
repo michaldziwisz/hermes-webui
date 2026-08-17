@@ -11286,7 +11286,13 @@ function isTpsDisplayEnabled(){
 function _assistantRoleHtml(tsTitle='', tpsText=''){
   const _bn=assistantDisplayName();
   const tps=(isTpsDisplayEnabled()&&tpsText)?`<span class="msg-tps-inline" title="Tokens per second">${esc(tpsText)}</span>`:'';
-  return `<div class="msg-role assistant" ${tsTitle?`title="${esc(tsTitle)}"`:''}><div class="role-icon assistant">${esc(_bn.charAt(0).toUpperCase())}</div><span class="msg-role-name">${esc(_bn)}</span>${tps}</div>`;
+  // aria-hidden na ikonie roli: to KOLKO Z PIERWSZA LITERA nazwy ("H"), czyli
+  // czysta dekoracja wizualna powtarzajaca sasiedni podpis. Bez tego czytnik
+  // ekranu odczytuje litere jako osobny tekst i podpis brzmi "H Hermes" —
+  // zmierzone w drzewie dostepnosci na dzialajacej aplikacji, zgloszone przez
+  // uzytkownika jako "HHermes". Nazwa zostaje w .msg-role-name, wiec nic nie
+  // ginie, a jedna informacja przestaje byc czytana dwa razy.
+  return `<div class="msg-role assistant" ${tsTitle?`title="${esc(tsTitle)}"`:''}><div class="role-icon assistant" aria-hidden="true">${esc(_bn.charAt(0).toUpperCase())}</div><span class="msg-role-name">${esc(_bn)}</span>${tps}</div>`;
 }
 function _setAssistantTurnTps(turn, tpsText=''){
   if(!turn) return;
@@ -14753,10 +14759,18 @@ function _syncLiveRunStatusAfterRender(){
   showLiveRunStatus(sid,{startedAt,tokens:_liveRunStatusTokens});
 }
 function hideLiveRunStatus(sid){
-  if(sid&&_liveRunStatusSessionId&&sid!==_liveRunStatusSessionId) return;
-  // a11y: work finished — stop the quiet status poller and refresh the headings
-  // so the live turn stops reading as "working".
+  // a11y: stan biegu zamykamy ZAWSZE, PRZED bramka na identyfikator sesji.
+  // Zmierzony objaw zgloszony przez uzytkownika: "model skonczy pisac, a widze
+  // 5. Hermes, working / Hermes is working / Idle, i dopiero po odswiezeniu mam
+  // wypowiedz". Przyczyna: przy niezgodnym sid ta funkcja wychodzila w pierwszej
+  // linii i a11yRunFinished() NIE bylo wolane, wiec _a11yRunActive zostawal
+  // prawda. A dopoki bieg "trwa", _a11yTurnIsLive() uznaje OSTATNIA ture
+  // asystenta za zywa — wiec naglowek czyta sie "working" i _a11yReorderTurn
+  // nigdy nie przestawia blokow, czyli tresc odpowiedzi zostaje ZA dziennikiem.
+  // Stan biegu jest globalny dla okna, nie per sesja, wiec nie ma go po co
+  // trzymac warunkowo.
   if(typeof a11yRunFinished==='function') a11yRunFinished();
+  if(sid&&_liveRunStatusSessionId&&sid!==_liveRunStatusSessionId) return;
   const el=$('liveRunStatus');
   if(el){el.hidden=true;el.innerHTML='';}
   _clearLiveRunStatusTimer(sid||_liveRunStatusSessionId);
