@@ -277,6 +277,113 @@ function a11yTablist(tablist, opts){
   return tablist;
 }
 
+/* DRZEWO (pliki katalogu roboczego) - kontrakt role=tree.
+ *
+ * Zgloszenie Michala (18.08.2026): w zakladce Files czytnik mowil
+ *   "▸  .cache  ×   ▸  .cloak-venv  ×"
+ * czyli znak strzalki, nazwa, znak mnozenia. Jego slowa: "i badz tu madry co to
+ * jest, o co chodzi i jak z tym sie obchodzic".
+ *
+ * Zmierzone braki (wszystkie 7 naraz): wiersz to <div> bez role i bez tabindex
+ * (dla czytnika NIE JEST kontrolka i nie da sie go dosiegnac klawiatura),
+ * strzalka to <span> z samym znakiem (brak aria-expanded), przycisk usuwania ma
+ * widoczny tekst "×" i tylko title (czytniki czesto title pomijaja), kontener
+ * nie ma role=tree, brak aria-level, wiec nie wiadomo, na ktorym poziomie
+ * zagniezdzenia jest wiersz.
+ *
+ * Dlaczego role=tree, a nie lista przyciskow: katalogi sie ZWIJAJA i wiersze sa
+ * ZAGNIEZDZONE. Rola tree jest jedyna, ktora ma slownictwo na oba te fakty
+ * (aria-expanded + aria-level), a czytniki maja do niej gotowa nawigacje.
+ *
+ * Wzorzec fokusu: JEDEN tabindex=0 na cale drzewo (roving), strzalki wedruja
+ * miedzy wierszami. Inaczej drzewo z setka plikow wymagaloby setki nacisniec
+ * Tab, zeby je przeskoczyc.
+ */
+function a11yTreeRow(row, opts){
+  const o = opts || {};
+  if (!row || typeof row.setAttribute !== 'function') return row;
+  row.setAttribute('role', 'treeitem');
+  if (Number(o.level) > 0) row.setAttribute('aria-level', String(Math.floor(o.level)));
+  // Katalog: mowimy, czy jest rozwiniety. Plik: NIE ustawiamy aria-expanded -
+  // dla liscia ten atrybut jest nieprawdziwy (sugeruje, ze cos da sie rozwinac).
+  if (o.expandable) row.setAttribute('aria-expanded', o.expanded ? 'true' : 'false');
+  else row.removeAttribute('aria-expanded');
+  // Nazwa dostepna: sama nazwa pliku plus rodzaj, zeby "folder" bylo slyszalne
+  // takze wtedy, gdy ikona jest dla czytnika niewidoczna.
+  if (o.label) a11yLabel(row, o.label);
+  row.setAttribute('tabindex', o.focusable ? '0' : '-1');
+  return row;
+}
+
+/* Kontener drzewa: rola, nazwa i nawigacja strzalkami/Home/End.
+ * Idempotentny - wolaj po kazdym przerysowaniu. */
+function a11yTree(container, opts){
+  const o = opts || {};
+  if (!container || typeof container.querySelectorAll !== 'function') return container;
+  container.setAttribute('role', 'tree');
+  if (o.label) a11yLabel(container, o.label);
+  if (container.dataset && container.dataset.a11yTreeBound === '1') return container;
+  if (container.dataset) container.dataset.a11yTreeBound = '1';
+  if (typeof container.addEventListener !== 'function') return container;
+
+  const wiersze = () => Array.from(container.querySelectorAll('[role="treeitem"]'));
+  const przeniesFokus = (docelowy) => {
+    if (!docelowy) return;
+    for (const w of wiersze()) w.setAttribute('tabindex', w === docelowy ? '0' : '-1');
+    if (typeof docelowy.focus === 'function') docelowy.focus();
+  };
+
+  container.addEventListener('keydown', (ev) => {
+    const klawisz = ev && ev.key;
+    if (!klawisz) return;
+    const lista = wiersze();
+    if (!lista.length) return;
+    const aktywny = (typeof document !== 'undefined' && document.activeElement) || null;
+    let i = lista.indexOf(aktywny);
+    if (i < 0) i = lista.findIndex((w) => w.getAttribute('tabindex') === '0');
+
+    if (klawisz === 'ArrowDown' || klawisz === 'ArrowUp') {
+      ev.preventDefault();
+      const krok = klawisz === 'ArrowDown' ? 1 : -1;
+      const next = i < 0 ? 0 : (i + krok + lista.length) % lista.length;
+      przeniesFokus(lista[next]);
+      return;
+    }
+    if (klawisz === 'Home' || klawisz === 'End') {
+      ev.preventDefault();
+      przeniesFokus(klawisz === 'Home' ? lista[0] : lista[lista.length - 1]);
+      return;
+    }
+    if (i < 0) return;
+    const biezacy = lista[i];
+    const rozwijalny = biezacy.hasAttribute('aria-expanded');
+    const rozwiniety = biezacy.getAttribute('aria-expanded') === 'true';
+
+    // Strzalka w prawo: rozwin katalog. Gdy juz rozwiniety - wejdz do srodka.
+    if (klawisz === 'ArrowRight') {
+      ev.preventDefault();
+      if (rozwijalny && !rozwiniety) { if (typeof biezacy.click === 'function') biezacy.click(); }
+      else if (lista[i + 1]) przeniesFokus(lista[i + 1]);
+      return;
+    }
+    // Strzalka w lewo: zwin. Gdy zwiniety/plik - wyjdz do rodzica (wyzszy poziom).
+    if (klawisz === 'ArrowLeft') {
+      ev.preventDefault();
+      if (rozwijalny && rozwiniety) { if (typeof biezacy.click === 'function') biezacy.click(); return; }
+      const poziom = Number(biezacy.getAttribute('aria-level') || 0);
+      for (let j = i - 1; j >= 0; j--) {
+        if (Number(lista[j].getAttribute('aria-level') || 0) < poziom) { przeniesFokus(lista[j]); return; }
+      }
+      return;
+    }
+    if (klawisz === 'Enter' || klawisz === ' ') {
+      ev.preventDefault();
+      if (typeof biezacy.click === 'function') biezacy.click();
+    }
+  });
+  return container;
+}
+
 /* Lista wyboru sterowana strzalkami (combobox + listbox).
  *
  * Zmierzony defekt (18.08.2026): podpowiedzi komend /slash i podpowiedzi
@@ -339,6 +446,8 @@ if (typeof window !== 'undefined') {
   window.a11yAsButton = a11yAsButton;
   window.a11yAsLink = a11yAsLink;
   window.a11yTablist = a11yTablist;
+  window.a11yTree = a11yTree;
+  window.a11yTreeRow = a11yTreeRow;
   window.a11yActiveDescendantList = a11yActiveDescendantList;
 }
 

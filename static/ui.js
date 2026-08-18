@@ -20963,6 +20963,17 @@ function renderFileTree(){
     return;
   }
   _renderTreeItems(box, visibleEntries, 0);
+  // Kontener musi byc DRZEWEM, nie zbiorem luznych divow: bez role=tree czytnik
+  // nie zapowie "drzewo, N elementow" ani nie da wlasnej nawigacji, a bez nazwy
+  // uzytkownik nie wie, do czego wszedl. Wolane po KAZDYM przerysowaniu, bo
+  // innerHTML='' powyzej niszczy wiersze; sam helper jest idempotentny i nie
+  // zaklada nasluchu klawiatury drugi raz.
+  if(typeof a11yTree==='function'){
+    a11yTree(box, {
+      label: (typeof t==='function' && t('workspace_tree_aria'))
+        || 'Workspace files',
+    });
+  }
   // #5657: restore the pre-wipe scroll position now that the tree is tall again.
   if(box) box.scrollTop=prevScrollTop;
 }
@@ -21155,6 +21166,10 @@ function _renderTreeItems(container, entries, depth){
       arrow.className='file-tree-toggle';
       const isExpanded=S._expandedDirs.has(item.path);
       arrow.textContent=isExpanded?'\u25BE':'\u25B8';
+      // Sam znak ▸/▾ nic czytnikowi nie mowi, a stan rozwiniecia niesie juz
+      // aria-expanded na WIERSZU (rola treeitem). Strzalka jest wiec czysta
+      // dekoracja - ukrywamy ja, zeby nie czytal "▸" przed kazda nazwa.
+      arrow.setAttribute('aria-hidden','true');
       el.appendChild(arrow);
     }else{
       // Keep file icons aligned with sibling directories that occupy this
@@ -21168,6 +21183,9 @@ function _renderTreeItems(container, entries, depth){
     // Icon
     const iconEl=document.createElement('span');
     iconEl.className='file-icon';
+    // Rodzaj wpisu jest w nazwie dostepnej wiersza ("folder .cache"), wiec sama
+    // ikona jest dekoracja - inaczej czytnik czyta SVG albo puste miejsce.
+    iconEl.setAttribute('aria-hidden','true');
     iconEl.innerHTML = isExternalLink
       ? li('external-link', 14)
       : isDirLike
@@ -21276,16 +21294,27 @@ function _renderTreeItems(container, entries, depth){
     }
 
     // Delete button -- for file-like rows and directory-like rows
+    // Nazwa MUSI mowic, CO zniknie: samo "×" (albo "usun") przy dwudziestu
+    // wierszach nie pozwala odroznic, ktory przycisk jest ktory. Widoczny znak
+    // ukrywamy przed czytnikiem i podajemy nazwe dostepna z nazwa wpisu.
+    const _delLabel=(nazwa)=>{
+      const wzor=(typeof t==='function' && t('delete_entry_aria'))||'';
+      return wzor ? wzor.replace('{name}', nazwa) : `${(typeof t==='function' && t('delete_title'))||'Delete'} ${nazwa}`;
+    };
     if(isFileLike){
       if(!isReadOnlyEscape){
         const del=document.createElement('button');
         del.className='file-del-btn';del.title=t('delete_title');del.textContent='\u00d7';
+        del.setAttribute('aria-label', _delLabel(item.name));
+        del.setAttribute('type','button');
         del.onclick=async(e)=>{e.stopPropagation();await deleteWorkspaceFile(item.path,item.name);};
         el.appendChild(del);
       }
     }else if(isDirLike&& !isReadOnlyEscape){
       const del=document.createElement('button');
       del.className='file-del-btn';del.title=t('delete_title');del.textContent='\u00d7';
+      del.setAttribute('aria-label', _delLabel(item.name));
+      del.setAttribute('type','button');
       del.onclick=async(e)=>{e.stopPropagation();await deleteWorkspaceDir(item.path,item.name);};
       el.appendChild(del);
     }
@@ -21339,6 +21368,30 @@ function _renderTreeItems(container, entries, depth){
       };
     }else{
       el.onclick=async()=>openFile(item.path);
+    }
+
+    // Kontrakt drzewa (WCAG 4.1.2): dopiero TU wiemy o wierszu wszystko -
+    // czy jest katalogiem, czy rozwinietym i na ktorym poziomie lezy.
+    // Bez tego wiersz byl zwyklym <div>: czytnik nie widzial kontrolki, nie
+    // dawalo sie do niego dojsc klawiatura, a caly wiersz brzmial
+    // "▸ .cache ×" (zgloszenie 18.08.2026).
+    if(typeof a11yTreeRow==='function'){
+      const _rodzaj=isExternalLink
+        ? ((typeof t==='function' && t('tree_external_link_aria'))||'external link')
+        : isDirLike
+          ? ((typeof t==='function' && t('tree_folder_aria'))||'folder')
+          : ((typeof t==='function' && t('tree_file_aria'))||'file');
+      // Pierwszy wiersz najwyzszego poziomu trzyma fokus dla calego drzewa
+      // (roving tabindex) - inaczej drzewo z setka plikow to setka Tabow.
+      const _pierwszy=depth===0 && container.querySelectorAll
+        && container.querySelectorAll('[role="treeitem"]').length===0;
+      a11yTreeRow(el, {
+        level: depth+1,
+        expandable: isDirLike,
+        expanded: isDirLike && S._expandedDirs.has(item.path),
+        label: `${_rodzaj} ${item.name}`,
+        focusable: _pierwszy,
+      });
     }
 
     container.appendChild(el);
