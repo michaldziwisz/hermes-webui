@@ -3193,6 +3193,11 @@ async function _ensureMessagesLoaded(sid, opts) {
   if (!data || !data.session) return;
   _messagesTruncated = !!data.session._messages_truncated;
   _oldestIdx = data.session._messages_offset || 0;
+  // Numeracja naglowkow jest GLOBALNA (pozycja w calej rozmowie), wiec musi
+  // sie przeliczyc przy KAZDEJ zmianie okna - takze przy doladowaniu wstecz.
+  if (typeof a11ySetTurnNumbering === 'function') {
+    a11ySetTurnNumbering(data.session._visible_turns_before, data.session._visible_turns_total);
+  }
   _msgLimitMax = data.session._msg_limit_max || _MSG_LIMIT_MAX;
   // #3162: `msgs` is reassigned below by the #3018 ephemeral-field carry-forward,
   // so it must be `let`, not `const`. The `const` form threw a TypeError inside
@@ -3847,6 +3852,11 @@ async function _loadOlderMessages() {
     _messageRenderWindowSize=_currentMessageRenderWindowSize()+Math.max(addedRenderable, MESSAGE_RENDER_WINDOW_DEFAULT);
     _messagesTruncated = !!responseSession._messages_truncated;
     _oldestIdx = responseSession._messages_offset || 0;
+    // Doladowanie wstecz ZMNIEJSZA przesuniecie: numery starszych wypowiedzi
+    // musza zostac te same, a nowo odslonietych - nizsze.
+    if (typeof a11ySetTurnNumbering === 'function') {
+      a11ySetTurnNumbering(responseSession._visible_turns_before, responseSession._visible_turns_total);
+    }
     renderMessages({ preserveScroll: true });
     if (container) {
       // Prepending older messages must not teleport the reader. Anchor to the

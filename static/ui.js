@@ -10089,6 +10089,10 @@ async function refreshSession() {
     S.messages = data.session.messages || [];
     _messagesTruncated = !!data.session._messages_truncated;
     _oldestIdx = data.session._messages_offset || 0;
+    // Numeracja naglowkow jest GLOBALNA - przelicz przy zmianie okna.
+    if (typeof a11ySetTurnNumbering === 'function') {
+      a11ySetTurnNumbering(data.session._visible_turns_before, data.session._visible_turns_total);
+    }
     if (typeof _mergePendingSessionMessage !== 'function') {
       throw new Error('Pending-session merge helper unavailable');
     }

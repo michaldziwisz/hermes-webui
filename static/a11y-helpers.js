@@ -475,10 +475,21 @@ function _a11yTurnIsLive(row){
  *   byc punktem zaczepienia do skoku, nie streszczeniem. Tresc czyta sie
  *   ZARAZ POD naglowkiem (patrz _a11yReorderTurn).
  */
-function _a11yTurnHeadingText(row, ordinal){
+function _a11yTurnHeadingText(row, ordinal, total){
   const label = _a11yRoleLabel(row);
   const isAssistant = (row.dataset && row.dataset.role === 'assistant')
     || row.classList.contains('assistant-turn');
+
+  // "N z M" tylko dla PIERWSZEJ wypowiedzi w oknie, nie dla kazdej.
+  //
+  // Numer globalny sam mowi, ze rozmowa jest dluga (43. zamiast 1.), ale nie
+  // mowi, ILE jest przed nami. Doklejanie "z 576" do KAZDEGO naglowka byloby
+  // jednak gadatliwe: przy skakaniu po naglowkach czytnik powtarzalby te sama
+  // liczbe kilkadziesiat razy. Uzytkownik potrzebuje jej RAZ, na wejsciu w okno
+  // — dalej wystarcza rosnacy numer.
+  const numer = (Number(total) > 0 && Number(ordinal) === _a11yTurnOffset + 1)
+    ? `${ordinal}/${total}`
+    : `${ordinal}`;
 
   if (isAssistant) {
     // Godzina z atrybutu title podpisu roli ("17.08.2026, 11:15:25").
@@ -491,13 +502,13 @@ function _a11yTurnHeadingText(row, ordinal){
     const live = _a11yTurnIsLive(row);
     if (live) {
       const working = (typeof t === 'function' && t('a11y_turn_working')) || 'working';
-      return `${ordinal}. ${label}, ${working}`;
+      return `${numer}. ${label}, ${working}`;
     }
-    return `${ordinal}. ${label}${hhmm ? ' ' + hhmm : ''}`;
+    return `${numer}. ${label}${hhmm ? ' ' + hhmm : ''}`;
   }
 
   const snippet = _a11ySnippet(row);
-  return `${ordinal}. ${label}${snippet ? ': ' + snippet : ''}`;
+  return `${numer}. ${label}${snippet ? ': ' + snippet : ''}`;
 }
 
 /* Kolejnosc w turze asystenta: ODPOWIEDZ NAJPIERW, dziennik i przyciski potem.
@@ -560,8 +571,8 @@ function _a11yReorderTurn(row){
   }
 }
 
-function _a11yEnsureTurnHeading(row, ordinal){
-  const text = _a11yTurnHeadingText(row, ordinal);
+function _a11yEnsureTurnHeading(row, ordinal, total){
+  const text = _a11yTurnHeadingText(row, ordinal, total);
 
   let h = row.firstElementChild;
   if (!(h && h.dataset && h.dataset[A11Y_HEAD_MARK] === 'turn')) {
@@ -630,6 +641,40 @@ function _a11yEnsureBlockHeadings(row){
 let _a11yHeadingObserver = null;
 let _a11yHeadingPending = false;
 
+/* Przesuniecie numeracji: ile wypowiedzi jest UKRYTYCH powyzej wczytanego okna.
+ *
+ * Zgloszenie Michala (18.08.2026): "w dlugiej sesji numerki sa 1, 2, 3, mimo ze
+ * sesja ma kilkadziesiat wiadomosci; wolalbym, zeby wyliczaly sie globalnie -
+ * uzytkownik ma miec jasny oglad, ze sesja sie rozwija".
+ *
+ * WebUI wczytuje tylko ogon rozmowy (wstecz doladowuje sie przyciskiem), a
+ * numeracja liczyla od pierwszego wiersza W DOM. Ta sama wypowiedz miala wiec
+ * inny numer w zaleznosci od tego, ile okna doladowano, a "1." przy 576.
+ * wypowiedzi nie mowilo NIC o miejscu w rozmowie.
+ *
+ * Serwer podaje teraz _visible_turns_before / _visible_turns_total w tej samej
+ * przestrzeni co widoczne wiersze (surowy _messages_offset by nie wystarczyl:
+ * zmierzone 978 wierszy magazynowych na 100 wypowiedzi w oknie). */
+let _a11yTurnOffset = 0;
+let _a11yTurnTotal = 0;
+
+/* Wolane po kazdym wczytaniu/doladowaniu okna rozmowy. */
+function a11ySetTurnNumbering(before, total){
+  const b = Number(before);
+  const t = Number(total);
+  const nowyOffset = Number.isFinite(b) && b >= 0 ? Math.floor(b) : 0;
+  const nowyTotal = Number.isFinite(t) && t >= 0 ? Math.floor(t) : 0;
+  const zmiana = (nowyOffset !== _a11yTurnOffset) || (nowyTotal !== _a11yTurnTotal);
+  _a11yTurnOffset = nowyOffset;
+  _a11yTurnTotal = nowyTotal;
+  // Numery sa już w tekstach naglowkow, wiec po zmianie przesuniecia trzeba je
+  // przeliczyc — inaczej doladowanie starszych wiadomosci zostawiloby stare.
+  if (zmiana) { try { a11yDecorateConversationHeadings(); } catch (_e) {} }
+  return zmiana;
+}
+
+function a11yTurnNumberingOffset(){ return _a11yTurnOffset; }
+
 function a11yDecorateConversationHeadings(container){
   const root = container || document.getElementById('messages');
   if (!root) return 0;
@@ -643,7 +688,8 @@ function a11yDecorateConversationHeadings(container){
     if (row.classList.contains('msg-row-spacer')) continue;
     n += 1;
     try {
-      _a11yEnsureTurnHeading(row, n);
+      // Numer GLOBALNY: pozycja w calej rozmowie, nie w wczytanym oknie.
+      _a11yEnsureTurnHeading(row, _a11yTurnOffset + n, _a11yTurnTotal);
       _a11yReorderTurn(row);
       _a11yEnsureBlockHeadings(row);
     } catch (_e) { /* never let decoration break rendering */ }
@@ -676,6 +722,8 @@ function a11yInstallConversationHeadings(){
 
 if (typeof window !== 'undefined') {
   window.a11yDecorateConversationHeadings = a11yDecorateConversationHeadings;
+  window.a11ySetTurnNumbering = a11ySetTurnNumbering;
+  window.a11yTurnNumberingOffset = a11yTurnNumberingOffset;
   window.a11yInstallConversationHeadings = a11yInstallConversationHeadings;
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', a11yInstallConversationHeadings);

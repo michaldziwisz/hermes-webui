@@ -8812,6 +8812,28 @@ def _message_window_for_display(messages, msg_limit=None, msg_before=None, expan
     return window, start_idx
 
 
+def _renderable_count_before(messages, offset) -> int:
+    """How many VISIBLE rows precede a window offset.
+
+    The offset returned by ``_message_window_for_display`` counts raw storage
+    rows, but the transcript numbers visible turns: a 194-row window holds 100
+    of them, and tool rows are folded into cards. Deriving "how far into the
+    conversation am I" from the raw offset would therefore drift badly.
+
+    Counting with the same ``_message_counts_as_renderable_for_window`` predicate
+    that carved the window keeps both sides in one coordinate space, so a heading
+    numbered N really is the Nth thing the user can reach.
+    """
+    try:
+        idx = int(offset or 0)
+    except (TypeError, ValueError):
+        return 0
+    if idx <= 0:
+        return 0
+    rows = list(messages or [])[:idx]
+    return sum(1 for row in rows if _message_counts_as_renderable_for_window(row))
+
+
 _LIMITED_TOOL_CONTENT_MAX_CHARS = 4096
 # Server-side ceiling on the ?msg_limit= tail-window size. A client could
 # otherwise request msg_limit=1000000 and force the server to assemble and
@@ -13706,6 +13728,18 @@ def handle_get(handler, parsed) -> bool:
             else:
                 _truncated_msgs = []
                 _messages_offset = 0
+            # How many VISIBLE turns precede the window. The transcript numbers
+            # turns for heading navigation, and counting from the first row in
+            # the DOM restarted at 1 in every long session: a session with
+            # hundreds of turns announced "1." for a message far into the
+            # conversation, so the number said nothing about where the user was.
+            # ``_messages_offset`` cannot be used directly — it counts raw
+            # storage rows (measured: offset 978 for a window holding 100 visible
+            # turns out of 194 rows).
+            _visible_before = (
+                _renderable_count_before(_all_msgs, _messages_offset)
+                if load_messages else 0
+            )
             # Index of the first returned message in the full message array.
             # Frontend uses this as cursor for scroll-to-top paging.
             _windowed_messages = (
@@ -13890,6 +13924,20 @@ def handle_get(handler, parsed) -> bool:
             _truncated = load_messages and msg_limit is not None and _messages_offset > 0
             raw["_messages_truncated"] = _truncated
             raw["_messages_offset"] = _messages_offset
+            # Visible-turn coordinates for heading numbering. Two numbers, both in
+            # the same space as the rows the user can actually reach:
+            #   _visible_turns_before — how many turns are hidden above the window
+            #   _visible_turns_total  — how many the whole conversation has
+            # so a heading can say "turn 43 of 61" instead of restarting at 1 on
+            # every reload of a long session.
+            raw["_visible_turns_before"] = _visible_before
+            raw["_visible_turns_total"] = (
+                _visible_before
+                + sum(
+                    1 for _row in (_truncated_msgs or [])
+                    if _message_counts_as_renderable_for_window(_row)
+                )
+            ) if load_messages else 0
             raw["_msg_limit_max"] = _MAX_MSG_LIMIT
             _t4 = _time.monotonic()
             if _diag: _diag.stage("t4_after_compact_and_merge")
