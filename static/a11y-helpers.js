@@ -832,6 +832,79 @@ function _a11yRefreshRunStatus(){
   if (el.textContent !== text) el.textContent = text;
 }
 
+/* BIEG SPOZA TEJ PRZEGLADARKI (CLI/TUI, inna karta, bramka).
+ *
+ * Zgloszenie Michala (18.08.2026): ta sama sesja otwarta w terminalu i w WebUI.
+ * W terminalu widac, ze praca trwa; w przegladarce wyglada, jakby Hermes
+ * skonczyl. Zmierzone: /api/session zwracalo is_streaming=false i
+ * active_stream_id=null DLA SESJI, W KTOREJ AGENT WLASNIE PISAL - serwer sledzi
+ * tylko strumienie wlasne, a tura z CLI jest dla niego niewidoczna.
+ *
+ * Nasz stan biegu (a11yRunStarted/Finished) jest tu SLUSZNIE wygaszony: ta karta
+ * niczego nie wysylala. Brakowalo INFORMACJI, ze pracuje ktos inny. Serwer podaje
+ * ja teraz w polach last_activity_at / last_activity_description (pisze je sam
+ * agent: "receiving stream response", "executing tool: terminal",
+ * "terminal command running (60s elapsed)").
+ *
+ * Dlaczego prog jest tak luzny: zmierzony rozklad odswiezen tego sygnalu podczas
+ * realnej pracy pokazal przerwy do ~58 s (sygnal aktualizuje sie przy ZMIANIE
+ * ETAPU, nie co sekunde). Prog krotszy niz to sprawialby, ze komunikat MIGA w
+ * trakcie jednego dlugiego wywolania modelu - a migajacy stan jest dla uzytkownika
+ * czytnika gorszy niz brak stanu. Dlatego 90 s: z zapasem powyzej najdluzszej
+ * zmierzonej przerwy.
+ *
+ * Sygnal jest tylko UZUPELNIENIEM: gdy ta karta sama prowadzi bieg, pierwszenstwo
+ * ma stan lokalny (dokladniejszy, odswiezany co 5 s). */
+const A11Y_FOREIGN_RUN_FRESH_MS = 90000;
+let _a11yForeignRunActive = false;
+
+/* Czy dane sesji mowia, ze KTOS INNY wlasnie pracuje.
+ * Zwraca opis czynnosci albo '' (brak obcego biegu). */
+function a11yForeignRunActivity(sesja){
+  if (!sesja || typeof sesja !== 'object') return '';
+  // Sesja zakonczona nie pracuje, choćby znacznik byl swiezy.
+  if (sesja.ended_at) return '';
+  const znacznik = Number(sesja.last_activity_at || 0);
+  if (!znacznik) return '';
+  // Znacznik jest w sekundach epoki (tak zapisuje go agent).
+  const wiekMs = Date.now() - znacznik * 1000;
+  if (!(wiekMs >= 0) || wiekMs > A11Y_FOREIGN_RUN_FRESH_MS) return '';
+  const opis = String(sesja.last_activity_description || '').replace(/\s+/g, ' ').trim();
+  // Bez opisu nie zgadujemy: "cos sie dzieje" bez tresci to szum.
+  if (!opis) return '';
+  return opis.length > 80 ? opis.slice(0, 80).replace(/\s+\S*$/, '') + '…' : opis;
+}
+
+/* Wolane po kazdym odswiezeniu danych sesji. Idempotentne.
+ *
+ * UWAGA: to NIE jest drugi mechanizm obok watchdoga ponizej. Watchdog decyduje,
+ * CZY obcy bieg trwa (na podstawie przyrostu znacznika), a ta funkcja dokleja
+ * CZYNNOSC do cichego stanu, gdy bieg nie nalezy do tej karty. */
+function a11ySyncForeignRunState(sesja){
+  const opis = a11yForeignRunActivity(sesja);
+  // Bieg prowadzony przez TA karte jest dokladniejszy - nie nadpisujemy go.
+  if (_a11yRunActive) { _a11yForeignRunActive = false; return false; }
+  const el = _a11yRunStatusHost();
+  if (opis) {
+    const label = (typeof t === 'function' && t('a11y_run_working_elsewhere'))
+      || 'Hermes is working in another session';
+    const text = `${label} — ${opis}`;
+    if (el.textContent !== text) el.textContent = text;
+    if (!_a11yForeignRunActive) {
+      _a11yForeignRunActive = true;
+      // Jednorazowo, tryb polite: uzytkownik ma wiedziec, ze nie patrzy na
+      // skonczona rozmowe. Kolejne odswiezenia sa CICHE.
+      if (typeof a11yAnnounce === 'function') a11yAnnounce(label);
+    }
+    return true;
+  }
+  if (_a11yForeignRunActive) {
+    _a11yForeignRunActive = false;
+    if (el.textContent) el.textContent = '';
+  }
+  return false;
+}
+
 function a11yRunStarted(){
   if (_a11yRunActive) return;
   _a11yRunActive = true;
@@ -961,13 +1034,31 @@ async function _a11yForeignPoll(){
     return;
   }
   let stamp = null;
+  let sesja = null;
   try {
     const r = await fetch(`/api/session?session_id=${encodeURIComponent(sid)}&messages=0&resolve_model=0`,
                           {credentials: 'same-origin'});
     if (!r.ok) return;
     const d = await r.json();
     const s = (d && d.session) || d || {};
-    stamp = Number(s.last_message_at || s.updated_at || 0) || null;
+    sesja = s;
+    // Dwa niezalezne dowody postepu, brane RAZEM.
+    //
+    // Zmierzony defekt (18.08.2026, zgloszenie Michala: "w terminalu widze, ze
+    // sie dzieje, w WebUI wyglada jakby Hermes skonczyl"): tura z CLI potrafi
+    // pracowac DZIESIATKI SEKUND bez ani jednej nowej wiadomosci — probkowanie
+    // 22x co 4 s pokazalo licznik stojacy na 1442 przez cale 88 s, mimo ze agent
+    // pracowal. Sam `last_message_at` daje wiec martwe okna, w ktorych watchdog
+    // gasi stan w srodku pracy.
+    //
+    // `last_activity_at` pisze SAM AGENT przy kazdej zmianie etapu (nowe
+    // wywolanie narzedzia, nowy strumien), wiec tyka takze wtedy, gdy nic jeszcze
+    // nie doszlo do zapisu rozmowy. Maksimum z obu jest monotoniczne, wiec cala
+    // logika "przyrost = postep" ponizej zostaje bez zmian.
+    stamp = Math.max(
+      Number(s.last_message_at || s.updated_at || 0) || 0,
+      Number(s.last_activity_at || 0) || 0,
+    ) || null;
   } catch (_e) { return; }   // brak sieci nie jest dowodem konca pracy
   if (stamp === null) return;
   const teraz = Date.now();
@@ -1009,6 +1100,10 @@ async function _a11yForeignPoll(){
       _a11yForeignOwnsRun = true;
       a11yRunStarted();
     }
+    // Czynnosc podana przez agenta ("executing tool: terminal") jest
+    // dokladniejsza niz cokolwiek, co da sie odczytac z DOM obcej sesji —
+    // ta karta nie renderuje jej tury na zywo.
+    a11ySyncForeignRunState(sesja);
     return;
   }
   // brak przyrostu
@@ -1016,9 +1111,15 @@ async function _a11yForeignPoll(){
     if (teraz - (_a11yForeignLastGrowthAt || teraz) >= A11Y_FOREIGN_DONE_AFTER_MS) {
       _a11yForeignOwnsRun = false;
       a11yRunFinished();
+      a11ySyncForeignRunState(sesja);
     } else {
       _a11yRefreshRunStatus();   // po progu ciszy samo przejdzie w "Idle"
     }
+  } else {
+    // Stan nie nalezy do tej karty i nie ma przyrostu: jesli agent nadal
+    // raportuje swieza czynnosc (CLI potrafi milczec dziesiatki sekund),
+    // pokazujemy JA, zamiast udawac, ze rozmowa sie skonczyla.
+    a11ySyncForeignRunState(sesja);
   }
 }
 
@@ -1044,5 +1145,7 @@ if (typeof window !== 'undefined') {
   window.a11yRunStarted = a11yRunStarted;
   window.a11yRunFinished = a11yRunFinished;
   window.a11yRunIdlePause = a11yRunIdlePause;
+  window.a11yForeignRunActivity = a11yForeignRunActivity;
+  window.a11ySyncForeignRunState = a11ySyncForeignRunState;
   window.a11yRunIsActive = a11yRunIsActive;
 }

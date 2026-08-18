@@ -10177,6 +10177,10 @@ def _merge_cli_sidebar_metadata(ui_session: dict, cli_meta: dict) -> dict:
         "parent_session_id",
         "end_reason",
         "actual_message_count",
+        # Live work state from the agent itself: without it the browser cannot
+        # tell that a CLI/TUI turn is in flight (see _agent_row_live_work_state).
+        "last_activity_at",
+        "last_activity_description",
         "_lineage_root_id",
         "_lineage_tip_id",
         "_compression_segment_count",
@@ -13866,6 +13870,20 @@ def handle_get(handler, parsed) -> bool:
                 # keep the raw count available as ``actual_message_count`` but
                 # do not let it make the frontend expect phantom messages.
                 raw["message_count"] = _merged_message_count
+            # The agent's own live work state, for EVERY source — deliberately
+            # outside the branches above. The WebUI's is_streaming /
+            # active_stream_id only describe streams this server owns, so a turn
+            # running in the CLI/TUI reads as "finished" in the browser while the
+            # agent is still working (reported with a terminal and a browser open
+            # on the same session; measured: is_streaming=False while the agent
+            # was mid-turn). The webui branch reconciles source flags and the
+            # messaging branch merges sidebar metadata, so a CLI session fell
+            # through both and never received this.
+            if cli_meta:
+                for _live_key in ("last_activity_at", "last_activity_description"):
+                    _live_value = cli_meta.get(_live_key)
+                    if _live_value not in (None, ""):
+                        raw[_live_key] = _live_value
             # Signal to the frontend that older messages were omitted. The
             # message window cursor already reflects visible-row pagination and
             # avoids false positives when raw hidden tool rows exceed msg_limit.

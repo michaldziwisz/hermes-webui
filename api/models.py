@@ -7563,6 +7563,30 @@ def _state_projection_sidecar_metadata(sid: str) -> dict:
     return dict(metadata)
 
 
+def _agent_row_live_work_state(row: dict) -> dict:
+    """Project the agent's own live work state onto a session row.
+
+    ``is_streaming``/``active_stream_id`` only describe streams this server owns,
+    so a turn running in the CLI/TUI is invisible here: the browser shows a
+    session that looks finished while the agent is still working (reported with a
+    terminal and a browser open on the same session).
+
+    Hermes writes its current step into ``sessions.last_activity_at`` /
+    ``last_activity_description`` for every source, so pass both through and let
+    the caller decide how to present them. Measured descriptions look like
+    "receiving stream response", "executing tool: terminal",
+    "terminal command running (60s elapsed)".
+
+    One helper, because this projection is built in four sibling passes (the
+    interactive window plus the cron/webhook/kanban rescue passes); a fifth copy
+    would silently miss the state again.
+    """
+    return {
+        'last_activity_at': row.get('last_activity_at'),
+        'last_activity_description': row.get('last_activity_description'),
+    }
+
+
 def _load_cli_sessions_uncached(
     hermes_home: Path,
     db_path: Path,
@@ -7744,6 +7768,7 @@ def _load_cli_sessions_uncached(
             'relationship_type': row.get('relationship_type'),
             '_parent_lineage_root_id': row.get('_parent_lineage_root_id'),
             'end_reason': row.get('end_reason'),
+            **_agent_row_live_work_state(row),
             'actual_message_count': row.get('actual_message_count'),
             'user_message_count': row.get('actual_user_message_count'),
             '_lineage_root_id': row.get('_lineage_root_id'),
@@ -7816,6 +7841,7 @@ def _load_cli_sessions_uncached(
                     'relationship_type': row.get('relationship_type'),
                     '_parent_lineage_root_id': row.get('_parent_lineage_root_id'),
                     'end_reason': row.get('end_reason'),
+                    **_agent_row_live_work_state(row),
                     'actual_message_count': row.get('actual_message_count'),
                     'user_message_count': row.get('actual_user_message_count'),
                     '_lineage_root_id': row.get('_lineage_root_id'),
@@ -7882,6 +7908,7 @@ def _load_cli_sessions_uncached(
                     'relationship_type': row.get('relationship_type'),
                     '_parent_lineage_root_id': row.get('_parent_lineage_root_id'),
                     'end_reason': row.get('end_reason'),
+                    **_agent_row_live_work_state(row),
                     'actual_message_count': row.get('actual_message_count'),
                     'user_message_count': row.get('actual_user_message_count'),
                     '_lineage_root_id': row.get('_lineage_root_id'),
@@ -7946,6 +7973,7 @@ def _load_cli_sessions_uncached(
                     'relationship_type': row.get('relationship_type'),
                     '_parent_lineage_root_id': row.get('_parent_lineage_root_id'),
                     'end_reason': row.get('end_reason'),
+                    **_agent_row_live_work_state(row),
                     'actual_message_count': row.get('actual_message_count'),
                     'user_message_count': row.get('actual_user_message_count'),
                     '_lineage_root_id': row.get('_lineage_root_id'),
