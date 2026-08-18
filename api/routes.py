@@ -13939,6 +13939,28 @@ def handle_get(handler, parsed) -> bool:
                 )
             ) if load_messages else 0
             raw["_msg_limit_max"] = _MAX_MSG_LIMIT
+            # Change marker that does NOT depend on ?messages=.
+            #
+            # Measured defect: /api/session returns two different
+            # ``message_count`` values for the same session in the same instant —
+            # 1346 with messages=1 (rows after merge/dedup, what the transcript
+            # shows) and 2397 with messages=0 (raw state.db rows). The refresh
+            # probe fetches metadata-only while loading a session fetches
+            # messages, so ``remoteCount !== localCount`` compares two different
+            # coordinate spaces: always true, never informative. A transcript
+            # driven from the CLI could therefore not be told apart from an
+            # unchanged one, which is why new terminal output did not appear in
+            # the browser.
+            #
+            # ``last_message_at`` is identical across both shapes (verified), so
+            # it is the honest "something arrived" signal. Expose it under an
+            # explicit name rather than overloading message_count, whose two
+            # meanings other call sites already depend on.
+            try:
+                _marker = float(raw.get("last_message_at") or raw.get("updated_at") or 0)
+            except (TypeError, ValueError):
+                _marker = 0.0
+            raw["_transcript_marker"] = _marker
             _t4 = _time.monotonic()
             if _diag: _diag.stage("t4_after_compact_and_merge")
             if effective_model:

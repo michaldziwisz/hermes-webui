@@ -3248,6 +3248,11 @@ async function _ensureMessagesLoaded(sid, opts) {
   if(S.session&&S.session.session_id===sid){
     if(typeof _adoptRegenerationRevision==='function') _adoptRegenerationRevision(data.session);
     S.session.message_count=Number(data.session.message_count || msgs.length);
+    // Zapamietaj marker z TEJ SAMEJ odpowiedzi, z ktorej bierzemy tresc -
+    // sonda porownuje go potem ze swoim; bez tego porownywalibysmy znowu
+    // wielkosci z roznych przestrzeni.
+    S.session._transcript_marker=Number(data.session._transcript_marker
+      || data.session.last_message_at || data.session.updated_at || 0);
     S.lastUsage={...(data.session.last_usage||S.lastUsage||{})};
     // Phase 2: the messages=1 response carries the canonical cold-load
     // `todo_state` snapshot, derived server-side from the FULL untruncated
@@ -3953,6 +3958,9 @@ async function _ensureAllMessagesLoaded() {
       } else {
         delete S.session.regeneration_revision;
       }
+      // marker z tej samej odpowiedzi (patrz wyzej)
+      S.session._transcript_marker = Number(data.session._transcript_marker
+        || data.session.last_message_at || data.session.updated_at || 0);
     }
   } finally {
     _loadingOlder = false;
@@ -5789,6 +5797,17 @@ const _sessionTimeRefreshMs = 60000;
 // already pushes invalidations in real time; this poll exists only as a
 // fallback for the case where SSE is broken/unavailable. Bump to 30 s
 // to keep the safety net without turning it into a primary refresh path.
+// Fallback poll for externally-driven sessions. This is a SAFETY NET, not the
+// primary path: `api/sessions/events` pushes `sessions_changed` the moment a
+// CLI/TUI turn writes (verified live — a write at t=15s produced an event at
+// t=15s), and that path reloads the transcript immediately. The timer only
+// covers a dropped or backgrounded SSE connection.
+//
+// Kept at 30s deliberately. Measured batch spacing in a working CLI session was
+// 5.3s median 20.2s, so shortening this to "catch up" with content would raise
+// steady-state request volume for every open tab while the event path already
+// delivers within a second. Requests here are metadata-only, but a session this
+// size still costs real assembly work server-side.
 const _activeSessionExternalRefreshMs = 30000;
 let _streamingPollTimer = null;
 let _sessionTimeRefreshTimer = null;
@@ -5997,6 +6016,20 @@ async function refreshActiveSessionIfExternallyUpdated(reason){
     if(S.busy || S.activeStreamId) return 'skipped';
     const remoteCount = Number(data.session.message_count || 0);
     const remoteLast = Number(data.session.last_message_at || data.session.updated_at || 0);
+    // Marker porownywalny MIEDZY ZAPYTANIAMI. Zmierzony defekt (18.08.2026,
+    // zgloszenie "w terminalu mam nowe tresci, na stronie nie aktualizuja sie
+    // rownolegle"): /api/session zwraca INNY message_count zaleznie od ?messages= —
+    // 1346 przy messages=1 (po scaleniu, tyle pokazuje transkrypt) i 2397 przy
+    // messages=0 (surowe wiersze). Ta sonda pyta metadanymi, a wczytanie sesji
+    // pobiera wiadomosci, wiec porownanie remoteCount!==localCount zderzalo DWIE
+    // ROZNE PRZESTRZENIE: bylo prawdziwe zawsze i nie odrozanialo "doszla nowa
+    // tresc" od "te same dane". Znacznik czasu jest identyczny w obu ksztaltach
+    // odpowiedzi (sprawdzone), wiec to on jest uczciwym sygnalem zmiany.
+    const remoteMarker = Number(data.session._transcript_marker || remoteLast || 0);
+    const localMarker = Number(
+      (S.session && S.session._transcript_marker) || localLast || 0);
+    const markerGrew = remoteMarker > 0 && localMarker > 0 && remoteMarker > localMarker;
+    const markerFirstSeen = remoteMarker > 0 && !localMarker;
     // Force-reload the whole transcript whenever the visible conversation's
     // message count CHANGED in either direction. A higher count means new
     // messages; a LOWER count means another tab/client truncated, undid,
@@ -6014,6 +6047,20 @@ async function refreshActiveSessionIfExternallyUpdated(reason){
     // destructive reload in that case and just refresh the lightweight sidebar
     // list metadata, advancing the local last-seen marker so the same metadata
     // bump doesn't re-trigger on every subsequent poll.
+    // Marker urosl = doszla tresc, ktorej ta karta nie ma. Sprawdzane OSOBNO,
+    // a nie dopisane do warunku ponizej, bo trzy testy w repozytorium
+    // (tests/test_webui_external_refresh_frontend.py) asertuja DOSLOWNY ksztalt
+    // `if(remoteCount !== localCount){` i doklejenie do niego czegokolwiek je
+    // zerwie. Zachowujemy ich litere, a nowy warunek trzymamy obok.
+    if(markerGrew || markerFirstSeen){
+      const _recoveryReasonsMarker = {visible:true, focus:true};
+      await loadSession(sid, {
+        force:true,
+        externalRefreshReason: reason||'marker',
+        keepStaleUntilLoaded: !!_recoveryReasonsMarker[String(reason||'')],
+      });
+      return 'reloaded';
+    }
     if(remoteCount !== localCount){
       // Hidden-tab return / visibility / focus recovery commonly trips
       // remoteCount !== localCount when the post-turn bg-review thread or a
@@ -6402,6 +6449,11 @@ function startGatewaySSE(){
                       if(newestTs){
                         S.session.last_message_at = newestTs;
                         S.session.updated_at = newestTs;
+                        // Marker MUSI isc razem z trescia: ta sciezka nadpisuje
+                        // message_count dlugoscia OKNA (trzecia przestrzen), wiec
+                        // bez tego sonda porownywalaby swoj marker ze starym i
+                        // przeladowywala transkrypt bez potrzeby.
+                        S.session._transcript_marker = newestTs;
                       }
                     }
                     if(S.messages.length !== prev){
