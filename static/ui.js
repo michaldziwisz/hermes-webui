@@ -10089,7 +10089,7 @@ async function refreshSession() {
     S.messages = data.session.messages || [];
     _messagesTruncated = !!data.session._messages_truncated;
     _oldestIdx = data.session._messages_offset || 0;
-    // Numeracja naglowkow jest GLOBALNA - przelicz przy zmianie okna.
+    // Heading numbering is GLOBAL - recompute it when the window changes.
     if (typeof a11ySetTurnNumbering === 'function') {
       a11ySetTurnNumbering(data.session._visible_turns_before, data.session._visible_turns_total);
     }
@@ -11290,12 +11290,12 @@ function isTpsDisplayEnabled(){
 function _assistantRoleHtml(tsTitle='', tpsText=''){
   const _bn=assistantDisplayName();
   const tps=(isTpsDisplayEnabled()&&tpsText)?`<span class="msg-tps-inline" title="Tokens per second">${esc(tpsText)}</span>`:'';
-  // aria-hidden na ikonie roli: to KOLKO Z PIERWSZA LITERA nazwy ("H"), czyli
-  // czysta dekoracja wizualna powtarzajaca sasiedni podpis. Bez tego czytnik
-  // ekranu odczytuje litere jako osobny tekst i podpis brzmi "H Hermes" —
-  // zmierzone w drzewie dostepnosci na dzialajacej aplikacji, zgloszone przez
-  // uzytkownika jako "HHermes". Nazwa zostaje w .msg-role-name, wiec nic nie
-  // ginie, a jedna informacja przestaje byc czytana dwa razy.
+  // aria-hidden on the role icon: it is a CIRCLE WITH THE FIRST LETTER of the
+  // name ("H"), so it is pure visual decoration duplicating the adjacent label.
+  // Without this a screen reader reads the letter as separate text and the label
+  // becomes "H Hermes" — measured in the accessibility tree on the live app and
+  // reported by the user as "HHermes". The name remains in .msg-role-name, so
+  // nothing is lost and one piece of information stops being read twice.
   return `<div class="msg-role assistant" ${tsTitle?`title="${esc(tsTitle)}"`:''}><div class="role-icon assistant" aria-hidden="true">${esc(_bn.charAt(0).toUpperCase())}</div><span class="msg-role-name">${esc(_bn)}</span>${tps}</div>`;
 }
 function _setAssistantTurnTps(turn, tpsText=''){
@@ -11960,24 +11960,25 @@ function _attachCopyButton(header){
 function _transparentEventCountLabel(toolCount){
   return toolCount?`Trace: ${toolCount} ${toolCount===1?'tool':'tools'}`:'Trace';
 }
-/* a11y (WCAG 4.1.2): pasek Full/Output ma role="tab", ale stan aktywnosci
-   istnial wylacznie jako klasa CSS `.active` — czytnik mowil "zakladka Output"
-   i nie mowil, ktora jest wybrana. Ten sam defekt naprawilismy w Settings >
-   Extensions; tu jest jego trzecia kopia (pasek powstaje w 3 miejscach: dwa
-   razy przez createElement i raz w szablonie HTML karty).
+/* a11y (WCAG 4.1.2): the Full/Output bar has role="tab", but the active state
+   existed only as a CSS `.active` class — a screen reader said "Output tab"
+   and did not say which one was selected. We already fixed the same defect in
+   Settings > Extensions; this is its third copy (the bar is created in 3 places:
+   twice via createElement and once in the card's HTML template).
 
-   Deklarujemy stan JEDNA funkcja wolana z przelacznika ponizej, zamiast
-   dopisywac atrybuty w trzech miejscach budujacych HTML — inaczej czwarta
-   kopia znowu urodzi sie niema. Panel jest jeden i wspolny dla obu zakladek
-   (tryb "output" tylko ukrywa argumenty w tym samym kontenerze), wiec helper
-   przypina jego nazwe do AKTYWNEJ zakladki. */
+   We declare the state through ONE function called from the switcher below,
+   instead of adding attributes in three HTML-building places — otherwise a
+   fourth copy would be born mute again. The panel is single and shared by both
+   tabs ("output" mode only hides arguments in the same container), so the
+   helper attaches its name to the ACTIVE tab. */
 function _syncTransparentDetailTabsA11y(detail, mode){
   if(!detail||typeof detail.querySelector!=='function') return;
   const modes=detail.querySelector('.transparent-detail-modes');
   if(!modes) return;
   if(typeof a11yTablist!=='function'){
-    // Awaryjnie: bez helpera i tak deklarujemy stan wybrania, bo to jest
-    // wlasciwy defekt. Nawigacja strzalkami wymaga helpera i wtedy jej brak.
+    // Fallback: even without the helper we still declare the selected state,
+    // because that is the actual defect. Arrow-key navigation requires the
+    // helper, and then its absence is expected.
     modes.querySelectorAll('[role="tab"]').forEach(el=>{
       el.setAttribute('aria-selected', el.getAttribute('data-mode')===mode?'true':'false');
     });
@@ -12077,10 +12078,10 @@ function _materializeTransparentToolDetail(row){
       else detail.appendChild(modes);
       detail.setAttribute('data-transparent-detail-mode','full');
     }
-    // POZA warunkiem powyzej: gdy detal przyszedl z gotowego szablonu, ktory JUZ
-    // zawiera pasek zakladek, tamten blok sie nie wykonuje — a pasek z szablonu
-    // jest wlasnie tym, ktory nie ma zadeklarowanego stanu. Synchronizujemy wiec
-    // kazda sciezke budowy, nie tylko te, ktora pasek dokleja.
+    // OUTSIDE the condition above: when detail comes from a ready-made template
+    // that ALREADY contains the tab bar, that block does not run - and the
+    // template bar is exactly the one that has no declared state. So we sync
+    // every construction path, not only the one that appends the bar.
     if(detail){
       _syncTransparentDetailTabsA11y(
         detail, detail.getAttribute('data-transparent-detail-mode')||'full');
@@ -12400,8 +12401,8 @@ function _decorateTransparentEventRow(row, opts){
         else detail.appendChild(modes);
         detail.setAttribute('data-transparent-detail-mode','full');
       }
-      // Poza warunkiem: pasek moze pochodzic z szablonu karty (wtedy blok wyzej
-      // sie nie wykonuje), a wlasnie taki pasek nie ma zadeklarowanego stanu.
+      // Outside the condition: the bar may come from the card template (then the
+      // block above does not run), and that exact bar has no declared state.
       if(detail){
         _syncTransparentDetailTabsA11y(
           detail, detail.getAttribute('data-transparent-detail-mode')||'full');
@@ -14808,16 +14809,16 @@ function _syncLiveRunStatusAfterRender(){
   showLiveRunStatus(sid,{startedAt,tokens:_liveRunStatusTokens});
 }
 function hideLiveRunStatus(sid){
-  // a11y: stan biegu zamykamy ZAWSZE, PRZED bramka na identyfikator sesji.
-  // Zmierzony objaw zgloszony przez uzytkownika: "model skonczy pisac, a widze
-  // 5. Hermes, working / Hermes is working / Idle, i dopiero po odswiezeniu mam
-  // wypowiedz". Przyczyna: przy niezgodnym sid ta funkcja wychodzila w pierwszej
-  // linii i a11yRunFinished() NIE bylo wolane, wiec _a11yRunActive zostawal
-  // prawda. A dopoki bieg "trwa", _a11yTurnIsLive() uznaje OSTATNIA ture
-  // asystenta za zywa — wiec naglowek czyta sie "working" i _a11yReorderTurn
-  // nigdy nie przestawia blokow, czyli tresc odpowiedzi zostaje ZA dziennikiem.
-  // Stan biegu jest globalny dla okna, nie per sesja, wiec nie ma go po co
-  // trzymac warunkowo.
+  // a11y: always close the run state, BEFORE the session-id gate. Measured
+  // symptom reported by the user: "the model finishes writing, but I still hear
+  // 5. Hermes, working / Hermes is working / Idle, and only after refresh do I
+  // get the reply". Cause: on a mismatched sid this function returned on the
+  // first line and a11yRunFinished() was NOT called, so _a11yRunActive stayed
+  // true. And while the run "continues", _a11yTurnIsLive() treats the LAST
+  // assistant turn as live — so the heading reads "working" and
+  // _a11yReorderTurn never reorders the blocks, meaning the reply content stays
+  // AFTER the logs. The run state is global to the window, not per session, so
+  // there is no reason to keep it conditional.
   if(typeof a11yRunFinished==='function') a11yRunFinished();
   if(sid&&_liveRunStatusSessionId&&sid!==_liveRunStatusSessionId) return;
   const el=$('liveRunStatus');
@@ -20963,11 +20964,11 @@ function renderFileTree(){
     return;
   }
   _renderTreeItems(box, visibleEntries, 0);
-  // Kontener musi byc DRZEWEM, nie zbiorem luznych divow: bez role=tree czytnik
-  // nie zapowie "drzewo, N elementow" ani nie da wlasnej nawigacji, a bez nazwy
-  // uzytkownik nie wie, do czego wszedl. Wolane po KAZDYM przerysowaniu, bo
-  // innerHTML='' powyzej niszczy wiersze; sam helper jest idempotentny i nie
-  // zaklada nasluchu klawiatury drugi raz.
+  // The container must be a TREE, not a set of loose divs: without role=tree a
+  // screen reader will not announce "tree, N items" or provide its own
+  // navigation, and without a name the user does not know what they entered.
+  // Called after EVERY rerender, because innerHTML='' above destroys the rows;
+  // the helper itself is idempotent and does not install keyboard listeners twice.
   if(typeof a11yTree==='function'){
     a11yTree(box, {
       label: (typeof t==='function' && t('workspace_tree_aria'))
@@ -21166,9 +21167,10 @@ function _renderTreeItems(container, entries, depth){
       arrow.className='file-tree-toggle';
       const isExpanded=S._expandedDirs.has(item.path);
       arrow.textContent=isExpanded?'\u25BE':'\u25B8';
-      // Sam znak ▸/▾ nic czytnikowi nie mowi, a stan rozwiniecia niesie juz
-      // aria-expanded na WIERSZU (rola treeitem). Strzalka jest wiec czysta
-      // dekoracja - ukrywamy ja, zeby nie czytal "▸" przed kazda nazwa.
+      // The ▸/▾ glyph alone says nothing to a screen reader, and the expanded
+      // state is already carried by aria-expanded on the ROW (treeitem role).
+      // So the arrow is pure decoration - hide it so it does not read "▸" before
+      // every name.
       arrow.setAttribute('aria-hidden','true');
       el.appendChild(arrow);
     }else{
@@ -21183,8 +21185,9 @@ function _renderTreeItems(container, entries, depth){
     // Icon
     const iconEl=document.createElement('span');
     iconEl.className='file-icon';
-    // Rodzaj wpisu jest w nazwie dostepnej wiersza ("folder .cache"), wiec sama
-    // ikona jest dekoracja - inaczej czytnik czyta SVG albo puste miejsce.
+    // The entry type is already in the row's accessible name ("folder .cache"),
+    // so the icon itself is decoration - otherwise the screen reader reads the
+    // SVG or an empty spot.
     iconEl.setAttribute('aria-hidden','true');
     iconEl.innerHTML = isExternalLink
       ? li('external-link', 14)
@@ -21294,12 +21297,13 @@ function _renderTreeItems(container, entries, depth){
     }
 
     // Delete button -- for file-like rows and directory-like rows
-    // Nazwa MUSI mowic, CO zniknie: samo "×" (albo "usun") przy dwudziestu
-    // wierszach nie pozwala odroznic, ktory przycisk jest ktory. Widoczny znak
-    // ukrywamy przed czytnikiem i podajemy nazwe dostepna z nazwa wpisu.
-    const _delLabel=(nazwa)=>{
-      const wzor=(typeof t==='function' && t('delete_entry_aria'))||'';
-      return wzor ? wzor.replace('{name}', nazwa) : `${(typeof t==='function' && t('delete_title'))||'Delete'} ${nazwa}`;
+    // The name MUST say WHAT will disappear: just "×" (or "delete") across
+    // twenty rows does not let you tell which button is which. We hide the
+    // visible glyph from the screen reader and provide an accessible name with
+    // the entry name.
+    const _delLabel=(name)=>{
+      const pattern=(typeof t==='function' && t('delete_entry_aria'))||'';
+      return pattern ? pattern.replace('{name}', name) : `${(typeof t==='function' && t('delete_title'))||'Delete'} ${name}`;
     };
     if(isFileLike){
       if(!isReadOnlyEscape){
@@ -21370,19 +21374,19 @@ function _renderTreeItems(container, entries, depth){
       el.onclick=async()=>openFile(item.path);
     }
 
-    // Kontrakt drzewa (WCAG 4.1.2): dopiero TU wiemy o wierszu wszystko -
-    // czy jest katalogiem, czy rozwinietym i na ktorym poziomie lezy.
-    // Bez tego wiersz byl zwyklym <div>: czytnik nie widzial kontrolki, nie
-    // dawalo sie do niego dojsc klawiatura, a caly wiersz brzmial
-    // "▸ .cache ×" (zgloszenie 18.08.2026).
+    // Tree contract (WCAG 4.1.2): only HERE do we know everything about the row -
+    // whether it is a directory, whether it is expanded, and which level it is on.
+    // Without this the row was an ordinary <div>: the screen reader did not see a
+    // control, it was unreachable by keyboard, and the whole row sounded like
+    // "▸ .cache ×" (report 2026-08-18).
     if(typeof a11yTreeRow==='function'){
       const _rodzaj=isExternalLink
         ? ((typeof t==='function' && t('tree_external_link_aria'))||'external link')
         : isDirLike
           ? ((typeof t==='function' && t('tree_folder_aria'))||'folder')
           : ((typeof t==='function' && t('tree_file_aria'))||'file');
-      // Pierwszy wiersz najwyzszego poziomu trzyma fokus dla calego drzewa
-      // (roving tabindex) - inaczej drzewo z setka plikow to setka Tabow.
+      // The first top-level row holds focus for the whole tree (roving tabindex)
+      // - otherwise a tree with a hundred files becomes a hundred Tabs.
       const _pierwszy=depth===0 && container.querySelectorAll
         && container.querySelectorAll('[role="treeitem"]').length===0;
       a11yTreeRow(el, {

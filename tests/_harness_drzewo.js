@@ -1,11 +1,11 @@
-// Harness pomiarowy dla tests/test_a11y_file_tree.py
-// Wykonuje PRAWDZIWY kod z static/a11y-helpers.js na atrapie DOM i wypisuje
-// zmierzone zachowanie jako JSON w ostatniej linii stdout.
+// Measurement harness for tests/test_a11y_file_tree.py
+// Executes the REAL code from static/a11y-helpers.js on a DOM stub and prints
+// the measured behavior as JSON on the last stdout line.
 //
-// PULAPKA (zmierzona 18.08.2026, trzy razy tego dnia): atrapa, ktora nie zna
-// selektora albo metody, powoduje ciche padniecie DZIALAJACEGO kodu - kod
-// produkcyjny ma `catch` wokol dekoracji. Dlatego matches() RZUCA na nieznanym
-// selektorze, a firstElementChild jest WYLICZANE, nie zapamietane.
+// PITFALL (measured on 2026-08-18, three times that day): a stub that does not know
+// a selector or method causes a silent failure of WORKING code - the production code
+// has a `catch` around decoration. Therefore matches() THROWS on an unknown
+// selector, and firstElementChild is COMPUTED, not cached.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -71,13 +71,13 @@ const out = {};
 
 let row = mkEl('div', ['file-item']);
 ctx.a11yTreeRow(row, {level: 1, expandable: true, expanded: false, label: 'folder .cache', focusable: true});
-out.katalogZwiniety = {role: row.getAttribute('role'), expanded: row.getAttribute('aria-expanded'),
+out.collapsedFolder = {role: row.getAttribute('role'), expanded: row.getAttribute('aria-expanded'),
                        level: row.getAttribute('aria-level'), label: row.getAttribute('aria-label'),
                        tabindex: row.getAttribute('tabindex')};
 
 row = mkEl('div', ['file-item']);
 ctx.a11yTreeRow(row, {level: 3, expandable: true, expanded: true, label: 'folder src', focusable: false});
-out.katalogRozwiniety = {expanded: row.getAttribute('aria-expanded'),
+out.expandedFolder = {expanded: row.getAttribute('aria-expanded'),
                          level: row.getAttribute('aria-level'),
                          tabindex: row.getAttribute('tabindex')};
 
@@ -89,51 +89,51 @@ out.plik = {role: row.getAttribute('role'), maExpanded: row.hasAttribute('aria-e
 const box = mkEl('div');
 box.id = 'fileTree';
 rejestr['fileTree'] = box;
-const wiersze = [];
+const rows = [];
 for (let i = 0; i < 4; i++) {
   const r = mkEl('div', ['file-item']);
-  const katalog = i < 2;
-  ctx.a11yTreeRow(r, {level: katalog ? 1 : 2, expandable: katalog, expanded: false,
-                      label: (katalog ? 'folder k' : 'file p') + i, focusable: i === 0});
-  r._onclick = () => { r._klikniety = (r._klikniety || 0) + 1; };
+  const folder = i < 2;
+  ctx.a11yTreeRow(r, {level: folder ? 1 : 2, expandable: folder, expanded: false,
+                      label: (folder ? 'folder k' : 'file p') + i, focusable: i === 0});
+  r._onclick = () => { r._clicked = (r._clicked || 0) + 1; };
   box.appendChild(r);
-  wiersze.push(r);
+  rows.push(r);
 }
 ctx.a11yTree(box, {label: 'Workspace files'});
 ctx.a11yTree(box, {label: 'Workspace files'});
 ctx.a11yTree(box, {label: 'Workspace files'});
 out.kontener = {role: box.getAttribute('role'),
                 maNazwe: !!(box.getAttribute('aria-label') || box.getAttribute('aria-labelledby')),
-                nasluchowPoTrzechWywolaniach: (box.listeners && box.listeners.keydown || []).length};
+                listenersAfterThreeCalls: (box.listeners && box.listeners.keydown || []).length};
 
 const keydown = box.listeners.keydown[0];
 const ev = (key) => ({key, preventDefault(){}, stopPropagation(){}});
 const nav = {};
-ctx.document.activeElement = wiersze[0];
+ctx.document.activeElement = rows[0];
 keydown(ev('ArrowDown'));
-nav.dolNaDrugi = ctx.document.activeElement === wiersze[1];
-nav.rovingPrzeszedl = wiersze[1].getAttribute('tabindex') === '0'
-                   && wiersze[0].getAttribute('tabindex') === '-1';
+nav.downToSecond = ctx.document.activeElement === rows[1];
+nav.rovingMoved = rows[1].getAttribute('tabindex') === '0'
+                   && rows[0].getAttribute('tabindex') === '-1';
 keydown(ev('ArrowUp'));
-nav.goraWraca = ctx.document.activeElement === wiersze[0];
+nav.upReturns = ctx.document.activeElement === rows[0];
 keydown(ev('End'));
-nav.endNaOstatni = ctx.document.activeElement === wiersze[3];
+nav.endToLast = ctx.document.activeElement === rows[3];
 keydown(ev('Home'));
-nav.homeNaPierwszy = ctx.document.activeElement === wiersze[0];
-ctx.document.activeElement = wiersze[0];
+nav.homeToFirst = ctx.document.activeElement === rows[0];
+ctx.document.activeElement = rows[0];
 keydown(ev('ArrowRight'));
-nav.prawoRozwija = wiersze[0]._klikniety === 1;
-wiersze[0].setAttribute('aria-expanded', 'true');
-ctx.document.activeElement = wiersze[0];
+nav.rightExpands = rows[0]._clicked === 1;
+rows[0].setAttribute('aria-expanded', 'true');
+ctx.document.activeElement = rows[0];
 keydown(ev('ArrowLeft'));
-nav.lewoZwija = wiersze[0]._klikniety === 2;
-ctx.document.activeElement = wiersze[3];
+nav.leftCollapses = rows[0]._clicked === 2;
+ctx.document.activeElement = rows[3];
 keydown(ev('ArrowLeft'));
-nav.lewoDoRodzica = ctx.document.activeElement === wiersze[1];
-ctx.document.activeElement = wiersze[2];
-const przed = wiersze[2]._klikniety || 0;
+nav.leftToParent = ctx.document.activeElement === rows[1];
+ctx.document.activeElement = rows[2];
+const before = rows[2]._clicked || 0;
 keydown(ev('Enter'));
-nav.enterAktywuje = (wiersze[2]._klikniety || 0) === przed + 1;
+nav.enterActivates = (rows[2]._clicked || 0) === before + 1;
 out.nawigacja = nav;
 
 const odp = {};

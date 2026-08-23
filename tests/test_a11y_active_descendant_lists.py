@@ -1,24 +1,26 @@
-"""Listy wyboru sterowane strzalkami musza oglaszac, co jest wybrane.
+"""Arrow-key-driven selection lists must announce what is selected.
 
-Zmierzony defekt (18.08.2026): podpowiedzi komend /slash i podpowiedzi sciezek
-katalogu roboczego maja pelna nawigacje strzalkami, ale wybrana pozycja byla
-oznaczona WYLACZNIE klasa CSS. Fokus zostaje w polu tekstowym, wiec czytnik
-ekranu nie oglaszal niczego przy przechodzeniu po liscie - uzytkownik nie
-wiedzial, co zatwierdzi Enterem (WCAG 4.1.2).
+Measured defect (18.08.2026): /slash command suggestions and working-directory
+path suggestions have full arrow-key navigation, but the selected option was
+marked ONLY with a CSS class. Focus stays in the text field, so the screen
+reader announced nothing while moving through the list - the user did not know
+what Enter would confirm (WCAG 4.1.2).
 
-Repo rozwiazalo juz dokladnie ten problem dla listy modeli (static/ui.js,
-_highlightRow, komentarz autora wprost o WCAG 4.1.2): role="option" +
-aria-selected na wierszach oraz role="combobox" + aria-activedescendant na polu.
-Te dwie listy byly niezaadresowanymi kopiami tego samego wzorca, dlatego zamiast
-trzeciej kopii logiki wprowadzamy wspolny helper a11yActiveDescendantList.
+The repo has already solved exactly this problem for the model list (static/ui.js,
+_highlightRow, author comment explicitly about WCAG 4.1.2): role="option" +
+aria-selected on rows and role="combobox" + aria-activedescendant on the field.
+These two lists were unaddressed copies of the same pattern, so instead of a
+third copy of the logic we introduce a shared a11yActiveDescendantList helper.
 
-Kontrakt jest CALOSCIOWY i testy pilnuja go w calosci: sama aria-selected nie
-wystarczy, bo bez role="listbox"/"option" czytnik nie traktuje elementu jak listy
-wyboru, a bez aria-activedescendant nie oglosi ruchu, skoro fokus nie wedruje.
+The contract is COMPLETE and the tests guard it as a whole: aria-selected alone
+is not enough, because without role="listbox"/"option" the screen reader does
+not treat the element as a listbox, and without aria-activedescendant it will
+not announce movement when focus does not move.
 
-Testy WYKONUJA prawdziwe funkcje wyciete ze zrodel (node vm), a nie sprawdzaja
-obecnosci tekstu, bo defekt dotyczy tego, KIEDY atrybuty powstaja: kontrola
-zrodla przeszlaby takze na kodzie ustawiajacym je w zlym momencie.
+The tests EXECUTE real functions cut from the sources (node vm), rather than
+checking for the presence of text, because the defect is about WHEN the
+attributes appear: a source check would also pass on code that sets them at the
+wrong moment.
 """
 
 from pathlib import Path
@@ -85,22 +87,22 @@ vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(A11Y_PATH, 'utf8'), ctx);
 vm.runInContext("function $(id){return document.getElementById(id);} function t(k){return null;}", ctx);
 
-function wytnij(plik, nazwa) {
+function wytnij(plik, name) {
   const src = fs.readFileSync(plik, 'utf8');
-  const start = src.indexOf('function ' + nazwa + '(');
-  if (start < 0) throw new Error('brak funkcji ' + nazwa + ' w ' + plik);
+  const start = src.indexOf('function ' + name + '(');
+  if (start < 0) throw new Error('brak funkcji ' + name + ' w ' + plik);
   let g = 0;
   for (let j = src.indexOf('{', start); j < src.length; j++) {
     if (src[j] === '{') g++;
     else if (src[j] === '}') { g--; if (!g) return src.slice(start, j + 1); }
   }
-  throw new Error('nie domknalem ' + nazwa);
+  throw new Error('nie domknalem ' + name);
 }
 
-// UWAGA: `var`, nie `let`. W node vm `let` tworzy powiazanie leksykalne, ktore
-// NIE jest wlasciwoscia kontekstu - ustawienie ctx._cmdSelectedIdx z zewnatrz
-// byloby wtedy niewidoczne dla funkcji i test raportowalby falszywe padniecia
-// dzialajacego kodu (zmierzone przy budowie tego testu).
+// NOTE: `var`, not `let`. In Node vm, `let` creates a lexical binding that
+// is NOT a property of the context - setting ctx._cmdSelectedIdx from outside
+// would then be invisible to the function and the test would report false failures
+// of working code (measured while building this test).
 vm.runInContext('var _cmdSelectedIdx=-1;', ctx);
 vm.runInContext(wytnij(CMD_PATH, '_syncCmdDropdownA11y'), ctx);
 vm.runInContext(wytnij(CMD_PATH, 'navigateCmdDropdown'), ctx);
@@ -109,8 +111,8 @@ vm.runInContext(wytnij(PAN_PATH, '_highlightWorkspaceSuggestion'), ctx);
 
 const out = {};
 
-// ── lista podpowiedzi komend ──────────────────────────────────────────────
-const pole = mkEl('textarea'); el.msg = pole;
+// ── items podpowiedzi komend ──────────────────────────────────────────────
+const field = mkEl('textarea'); el.msg = field;
 const dd = mkEl('div'); el.cmdDropdown = dd;
 dd.classList.add('open');
 const poz = [];
@@ -124,19 +126,19 @@ ctx._syncCmdDropdownA11y();
 out.komendyStart = {
   rolaListy: dd.getAttribute('role'),
   wszystkieOption: poz.every((p) => p.getAttribute('role') === 'option'),
-  rolaPola: pole.getAttribute('role'),
-  expanded: pole.getAttribute('aria-expanded'),
-  autocomplete: pole.getAttribute('aria-autocomplete'),
-  wskazujeWybrana: pole.getAttribute('aria-activedescendant') === poz[0].id && !!poz[0].id,
+  rolaPola: field.getAttribute('role'),
+  expanded: field.getAttribute('aria-expanded'),
+  autocomplete: field.getAttribute('aria-autocomplete'),
+  wskazujeWybrana: field.getAttribute('aria-activedescendant') === poz[0].id && !!poz[0].id,
   pierwszaSelected: poz[0].getAttribute('aria-selected'),
   pozostaleNieSelected: poz.slice(1).every((p) => p.getAttribute('aria-selected') === 'false'),
-  wskazujeListe: pole.getAttribute('aria-controls') === dd.id && !!dd.id,
+  wskazujeListe: field.getAttribute('aria-controls') === dd.id && !!dd.id,
 };
 
 ctx.navigateCmdDropdown(1);
-out.komendyPoStrzalce = {
-  wskazujeDruga: pole.getAttribute('aria-activedescendant') === poz[1].id,
-  ariaZgodneZCss: poz[1].classes.has('selected')
+out.commandsAfterArrow = {
+  wskazujeDruga: field.getAttribute('aria-activedescendant') === poz[1].id,
+  ariaMatchesCss: poz[1].classes.has('selected')
                   && poz[1].getAttribute('aria-selected') === 'true'
                   && !poz[0].classes.has('selected')
                   && poz[0].getAttribute('aria-selected') === 'false',
@@ -144,138 +146,138 @@ out.komendyPoStrzalce = {
 
 ctx._cmdSelectedIdx = 0;
 ctx.navigateCmdDropdown(-1);
-out.komendyZawijanie = { wskazujeOstatnia: pole.getAttribute('aria-activedescendant') === poz[3].id };
+out.komendyZawijanie = { wskazujeOstatnia: field.getAttribute('aria-activedescendant') === poz[3].id };
 
 ctx.hideCmdDropdown();
 out.komendyPoUkryciu = {
-  brakWskaznika: !pole.getAttribute('aria-activedescendant'),
-  expanded: pole.getAttribute('aria-expanded'),
+  noReference: !field.getAttribute('aria-activedescendant'),
+  expanded: field.getAttribute('aria-expanded'),
 };
 
-// ── lista podpowiedzi sciezek ─────────────────────────────────────────────
-const polePath = mkEl('input'); el.workspaceFormPath = polePath;
+// ── items podpowiedzi sciezek ─────────────────────────────────────────────
+const pathField = mkEl('input'); el.workspaceFormPath = pathField;
 const box = mkEl('div'); el.workspaceFormPathSuggestions = box;
 const sug = [];
 for (let i = 0; i < 3; i++) { const it = mkEl('button'); it.classList.add('ws-suggest-item'); box.appendChild(it); sug.push(it); }
 
 ctx._highlightWorkspaceSuggestion(1);
-out.sciezki = {
+out.paths = {
   rolaListy: box.getAttribute('role'),
-  rolaPola: polePath.getAttribute('role'),
-  wskazujeWybrana: polePath.getAttribute('aria-activedescendant') === sug[1].id && !!sug[1].id,
-  ariaZgodneZCss: sug[1].classes.has('active')
+  rolaPola: pathField.getAttribute('role'),
+  wskazujeWybrana: pathField.getAttribute('aria-activedescendant') === sug[1].id && !!sug[1].id,
+  ariaMatchesCss: sug[1].classes.has('active')
                   && sug[1].getAttribute('aria-selected') === 'true'
                   && sug[0].getAttribute('aria-selected') === 'false',
 };
-const idPrzed = sug[1].id;
+const idBefore = sug[1].id;
 ctx._highlightWorkspaceSuggestion(-1);
-out.sciezkiBezWyboru = { brakWskaznika: !polePath.getAttribute('aria-activedescendant') };
+out.pathsWithoutSelection = { noReference: !pathField.getAttribute('aria-activedescendant') };
 ctx._highlightWorkspaceSuggestion(1);
 ctx._highlightWorkspaceSuggestion(1);
-out.sciezkiIdempotencja = { idStabilne: sug[1].id === idPrzed };
+out.pathsIdempotency = { idsStable: sug[1].id === idBefore };
 
 console.log(JSON.stringify(out));
 """
 
 
 @pytest.fixture(scope="module")
-def zachowanie(tmp_path_factory):
+def behaviour(tmp_path_factory):
     if not NODE:
-        pytest.skip("node niedostepny - nie da sie zmierzyc zachowania")
-    skrypt = tmp_path_factory.mktemp("listy") / "harness.js"
-    skrypt.write_text(
+        pytest.skip("node unavailable - cannot measure behavior")
+    script = tmp_path_factory.mktemp("lists") / "harness.js"
+    script.write_text(
         f"const A11Y_PATH = {json.dumps(str(REPO / 'static' / 'a11y-helpers.js'))};\n"
         f"const CMD_PATH = {json.dumps(str(REPO / 'static' / 'commands.js'))};\n"
         f"const PAN_PATH = {json.dumps(str(REPO / 'static' / 'panels.js'))};\n" + HARNESS,
         encoding="utf-8",
     )
-    proc = subprocess.run([NODE, str(skrypt)], capture_output=True, text=True, timeout=90)
+    proc = subprocess.run([NODE, str(script)], capture_output=True, text=True, timeout=90)
     assert proc.returncode == 0, f"harness padl: {proc.stderr[-2000:]}"
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
-class TestPodpowiedziKomend:
-    def test_lista_jest_listą_wyboru_dla_czytnika(self, zachowanie):
-        s = zachowanie["komendyStart"]
+class TestCommandSuggestions:
+    def test_list_is_a_listbox_for_screen_readers(self, behaviour):
+        s = behaviour["komendyStart"]
         assert s["rolaListy"] == "listbox", (
-            "bez role=listbox czytnik widzi zbior divow, a nie liste wyboru"
+            "without role=listbox, the screen reader sees a set of divs, not a selection list"
         )
-        assert s["wszystkieOption"], "pozycje musza miec role=option"
+        assert s["wszystkieOption"], "options must have role=option"
 
-    def test_pole_jest_polaczone_z_lista(self, zachowanie):
-        s = zachowanie["komendyStart"]
+    def test_input_is_linked_to_the_list(self, behaviour):
+        s = behaviour["komendyStart"]
         assert s["rolaPola"] == "combobox"
         assert s["expanded"] == "true"
         assert s["autocomplete"] == "list"
-        assert s["wskazujeListe"], "brak aria-controls laczacego pole z lista"
+        assert s["wskazujeListe"], "brak aria-controls laczacego field z items"
 
-    def test_wybrana_pozycja_jest_oglaszana_od_razu(self, zachowanie):
-        """Lista otwiera sie z wybrana pierwsza pozycja - zanim ktos ruszy strzalka."""
-        s = zachowanie["komendyStart"]
+    def test_selected_option_is_announced_immediately(self, behaviour):
+        """The list opens with the first option selected - before anyone presses an arrow key."""
+        s = behaviour["komendyStart"]
         assert s["wskazujeWybrana"], (
-            "bez aria-activedescendant czytnik milczy, bo fokus zostaje w polu"
+            "without aria-activedescendant, the screen reader stays silent because focus remains in the field"
         )
         assert s["pierwszaSelected"] == "true"
         assert s["pozostaleNieSelected"]
 
-    def test_strzalka_przesuwa_oglaszana_pozycje(self, zachowanie):
-        p = zachowanie["komendyPoStrzalce"]
-        assert p["wskazujeDruga"], "wskaznik musi isc za wyborem"
-        assert p["ariaZgodneZCss"], (
-            "to, co widac (klasa .selected), i to, co slychac, musi byc tym samym"
+    def test_arrow_key_moves_the_announced_option(self, behaviour):
+        p = behaviour["commandsAfterArrow"]
+        assert p["wskazujeDruga"], "the pointer must follow the selection"
+        assert p["ariaMatchesCss"], (
+            "what is visible (.selected class) and what is announced must be the same"
         )
 
-    def test_zawijanie_listy_tez_jest_oglaszane(self, zachowanie):
-        assert zachowanie["komendyZawijanie"]["wskazujeOstatnia"]
+    def test_list_wraparound_is_announced_too(self, behaviour):
+        assert behaviour["komendyZawijanie"]["wskazujeOstatnia"]
 
-    def test_po_zwinieciu_pole_nie_wskazuje_znikniętej_pozycji(self, zachowanie):
-        u = zachowanie["komendyPoUkryciu"]
-        assert u["brakWskaznika"], (
-            "aria-activedescendant wskazujacy usunięty element to zepsuty kontrakt"
+    def test_collapsing_clears_the_stale_option_reference(self, behaviour):
+        u = behaviour["komendyPoUkryciu"]
+        assert u["noReference"], (
+            "aria-activedescendant pointing to a removed element is a broken contract"
         )
         assert u["expanded"] == "false"
 
 
-class TestPodpowiedziSciezek:
-    def test_lista_jest_listą_wyboru(self, zachowanie):
-        s = zachowanie["sciezki"]
+class TestPathSuggestions:
+    def test_list_is_a_listbox(self, behaviour):
+        s = behaviour["paths"]
         assert s["rolaListy"] == "listbox"
         assert s["rolaPola"] == "combobox"
 
-    def test_wybrana_podpowiedz_jest_oglaszana(self, zachowanie):
-        s = zachowanie["sciezki"]
+    def test_highlighted_suggestion_is_announced(self, behaviour):
+        s = behaviour["paths"]
         assert s["wskazujeWybrana"]
-        assert s["ariaZgodneZCss"]
+        assert s["ariaMatchesCss"]
 
-    def test_brak_wyboru_czysci_wskaznik(self, zachowanie):
-        assert zachowanie["sciezkiBezWyboru"]["brakWskaznika"]
+    def test_no_selection_clears_the_reference(self, behaviour):
+        assert behaviour["pathsWithoutSelection"]["noReference"]
 
-    def test_powtorne_wywolanie_nie_zmienia_identyfikatorow(self, zachowanie):
-        assert zachowanie["sciezkiIdempotencja"]["idStabilne"], (
-            "niestabilne id psuje aria-activedescendant miedzy odswiezeniami"
+    def test_repeated_call_keeps_identifiers_stable(self, behaviour):
+        assert behaviour["pathsIdempotency"]["idsStable"], (
+            "an unstable id breaks aria-activedescendant between refreshes"
         )
 
 
-class TestWszystkieSciezkiZmianyWyboru:
-    """Kontrakt musi powstawac wszedzie, gdzie zmienia sie wybor."""
+class TestEverySelectionChangePath:
+    """The contract must be created everywhere the selection changes."""
 
-    def test_lista_komend_synchronizuje_sie_w_trzech_miejscach(self):
-        # pokazanie listy, nawigacja strzalkami, ukrycie listy (+ definicja)
+    def test_command_list_stays_in_sync_in_three_places(self):
+        # showing the list, arrow-key navigation, hiding the list (+ definition)
         assert COMMANDS_JS.count("_syncCmdDropdownA11y(") >= 4, (
-            "kontrakt musi byc odswiezany przy pokazaniu, nawigacji i ukryciu listy"
+            "the contract must be refreshed on list show, navigation, and hide"
         )
 
-    def test_podpowiedzi_sciezek_czyszcza_kontrakt_przy_zamknieciu(self):
+    def test_path_suggestions_clear_the_contract_on_close(self):
         idx = PANELS_JS.find("function closeWorkspacePathSuggestions(")
         assert idx > 0
         assert "a11yActiveDescendantList" in PANELS_JS[idx:idx + 700], (
-            "zamkniecie listy musi wyczyscic aria-activedescendant"
+            "closing the list must clear aria-activedescendant"
         )
 
 
-class TestTlumaczenia:
-    def test_nazwy_list_sa_we_wszystkich_locale(self):
-        for klucz in ("slash_commands_list_aria", "workspace_path_suggestions_aria"):
-            assert I18N_JS.count(klucz) >= 15, (
-                f"{klucz}: {I18N_JS.count(klucz)} locale zamiast 15"
+class TestTranslations:
+    def test_list_names_exist_in_every_locale(self):
+        for key in ("slash_commands_list_aria", "workspace_path_suggestions_aria"):
+            assert I18N_JS.count(key) >= 15, (
+                f"{key}: {I18N_JS.count(key)} locales instead of 15"
             )

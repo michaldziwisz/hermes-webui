@@ -1,33 +1,33 @@
-"""Wykrywanie nowej tresci nie moze porownywac liczb z roznych przestrzeni.
+"""New-content detection must not compare numbers from different spaces.
 
-Zgloszenie (18.08.2026): "w terminalu mam nowe tresci, na stronie nie
-aktualizuja sie rownolegle" - sesja otwarta rownolegle w CLI i w WebUI.
+Report (18.08.2026): "the terminal has new content, the page does not update in
+parallel" - a session open in the CLI and in the WebUI at the same time.
 
-ZMIERZONA PRZYCZYNA: ``/api/session`` zwracalo DWIE ROZNE wartosci
-``message_count`` dla tej samej sesji w tej samej chwili:
-    ?messages=1 -> 1346  (wiersze po scaleniu/dedup, tyle pokazuje transkrypt)
-    ?messages=0 -> 2397  (surowe wiersze w state.db)
-Sonda odswiezajaca pyta metadanymi (messages=0), a wczytanie sesji pobiera
-wiadomosci (messages=1), wiec warunek ``remoteCount !== localCount`` zderzal dwie
-rozne przestrzenie wspolrzednych. Byl prawdziwy ZAWSZE i nie niosl zadnej
-informacji - nie odrozanial "doszla nowa tresc" od "te same dane".
+MEASURED CAUSE: ``/api/session`` returned TWO DIFFERENT ``message_count`` values
+for the same session at the same moment:
+    ?messages=1 -> 1346  (rows after merging/dedup, what the transcript shows)
+    ?messages=0 -> 2397  (raw rows in state.db)
+The refresh poll asks for metadata (messages=0), while loading a session fetches
+messages (messages=1), so the condition ``remoteCount !== localCount`` collided two
+different coordinate spaces. It was ALWAYS true and carried no information at all -
+it could not tell "new content arrived" from "the same data".
 
-Trzecia przestrzen: sciezka odswiezania CLI (sessions.js) ustawiala
-``S.session.message_count = next.length``, czyli dlugosc WCZYTANEGO OKNA.
+A third space: the CLI refresh path (sessions.js) set
+``S.session.message_count = next.length``, i.e. the length of the LOADED WINDOW.
 
-CO ZOSTALO USTALONE POMIAREM, zanim cokolwiek zmieniono (zeby nie naprawiac
-niewlasciwej warstwy):
- * baza i API sa zgodne (0/12 rozbieznosci) - WebUI niczego nie cache'uje,
- * wiadomosci trafiaja do bazy partiami (mediana 20,2 s, min 5,3 s),
- * kanal SSE ``api/sessions/events`` DZIALA i powiadamia natychmiast: zapis
-   w t=15 s dal zdarzenie w t=15 s, trzy zapisy daly trzy zdarzenia,
- * sonda przepuszcza sesje CLI (is_cli_session=True) - bramka zrodla nie byla
-   przyczyna.
-Czyli sciezka powiadomienia byla sprawna, a psul ja WYLACZNIE warunek zmiany.
+WHAT WAS ESTABLISHED BY MEASUREMENT before anything was changed (so as not to fix
+the wrong layer):
+ * the database and the API agree (0/12 discrepancies) - the WebUI caches nothing,
+ * messages reach the database in batches (median 20.2s, min 5.3s),
+ * the SSE channel ``api/sessions/events`` WORKS and notifies immediately: a write
+   at t=15s produced an event at t=15s, three writes produced three events,
+ * the poll does let CLI sessions through (is_cli_session=True) - the source gate
+   was not the cause.
+So the notification path was healthy; only the change condition broke it.
 
-NAPRAWA: serwer wystawia ``_transcript_marker`` - znacznik NIEZALEZNY od
-ksztaltu zapytania (``last_message_at`` jest identyczny w obu, zweryfikowane).
-Przegladarka zapamietuje go razem z trescia i porownuje marker z markerem.
+THE FIX: the server exposes ``_transcript_marker`` - a marker INDEPENDENT of the
+query shape (``last_message_at`` is identical in both, verified).
+The browser stores it alongside the content and compares marker against marker.
 """
 
 from pathlib import Path
@@ -39,118 +39,116 @@ ROUTES_PY = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
 
 
 class TestSerwerWystawiaSpojnyMarker:
-    def test_marker_jest_w_odpowiedzi(self):
+    def test_marker_is_present_in_the_response(self):
         assert '"_transcript_marker"' in ROUTES_PY
 
-    def test_marker_pochodzi_ze_znacznika_czasu_nie_z_licznika(self):
-        """Licznik ma dwa znaczenia zaleznie od ?messages=; znacznik ma jedno."""
+    def test_marker_comes_from_a_timestamp_not_a_counter(self):
+        """The counter has two meanings depending on ?messages=; the marker has one."""
         idx = ROUTES_PY.find('raw["_transcript_marker"]')
         assert idx > 0
         okno = ROUTES_PY[max(0, idx - 900):idx]
         assert "last_message_at" in okno, (
-            "marker musi opierac sie na znaczniku czasu, ktory jest identyczny "
-            "w obu ksztaltach odpowiedzi"
+            "the marker must be based on a timestamp that is identical in both response shapes"
         )
         assert "message_count" not in okno.split("Measured defect")[-1][:200] or True
 
-    def test_marker_jest_odporny_na_bledne_dane(self):
+    def test_marker_tolerates_bad_data(self):
         idx = ROUTES_PY.find('raw["_transcript_marker"]')
         okno = ROUTES_PY[max(0, idx - 400):idx]
         assert "except" in okno and "ValueError" in okno, (
-            "brak lub niepoprawny znacznik nie moze wywrocic odpowiedzi"
+            "a missing or invalid marker must not break the response"
         )
 
-    def test_marker_nie_zalezy_od_load_messages(self):
-        """Gdyby byl liczony tylko przy messages=1, defekt zostalby ten sam."""
+    def test_marker_does_not_depend_on_load_messages(self):
+        """If it were computed only for messages=1, the defect would remain the same."""
         idx = ROUTES_PY.find('raw["_transcript_marker"]')
         assert idx > 0
-        # wyznacz wciecie linii przypisania i sprawdz, ze nie stoi w galezi
-        # zaleznej od load_messages
+        # determine the indentation of the assignment line and check that it is
+        # not inside a branch dependent on load_messages
         linia_start = ROUTES_PY.rfind("\n", 0, idx) + 1
         wciecie = len(ROUTES_PY[linia_start:idx]) - len(ROUTES_PY[linia_start:idx].lstrip())
         blok = ROUTES_PY[max(0, idx - 1200):idx]
         ostatni_if = blok.rfind("if load_messages")
         if ostatni_if > 0:
-            # jesli w oknie jest 'if load_messages', to nasze przypisanie musi
-            # miec wciecie NIE WIEKSZE niz ten if (czyli byc poza nim)
+            # if the window contains 'if load_messages', our assignment must
+            # have indentation NO GREATER than that if (that is, be outside it)
             linia_if = blok.rfind("\n", 0, ostatni_if) + 1
             wciecie_if = ostatni_if - linia_if
             assert wciecie <= wciecie_if, (
-                "marker nie moze byc ustawiany tylko przy wczytywaniu wiadomosci"
+                "the marker must not be set only when loading messages"
             )
 
 
-class TestPrzegladarkaPorownujeMarkery:
+class TestBrowserComparesMarkers:
     def test_sonda_uzywa_markera(self):
         idx = SESSIONS_JS.find("async function refreshActiveSessionIfExternallyUpdated")
         assert idx > 0
-        cialo = SESSIONS_JS[idx:idx + 4000]
-        assert "_transcript_marker" in cialo, (
-            "sonda musi porownywac marker, nie same liczniki"
+        body = SESSIONS_JS[idx:idx + 4000]
+        assert "_transcript_marker" in body, (
+            "the poll must compare the marker, not only counters"
         )
-        assert "markerGrew" in cialo
+        assert "markerGrew" in body
 
-    def test_warunek_przeladowania_reaguje_na_marker(self):
-        """Wzrost markera musi wymuszac przeladowanie transkryptu.
+    def test_reload_condition_reacts_to_the_marker(self):
+        """Marker growth must force transcript reload.
 
-        Sprawdzamy OSOBNY warunek, nie doklejenie do `if(remoteCount !== localCount)`:
-        trzy testy w tests/test_webui_external_refresh_frontend.py asertuja
-        doslowny ksztalt tamtej linii, wiec nowy warunek musi stac obok niej.
+        We check a SEPARATE condition, not an append to `if(remoteCount !== localCount)`:
+        three tests in tests/test_webui_external_refresh_frontend.py assert the
+        literal shape of that line, so the new condition must stand beside it.
         """
         idx = SESSIONS_JS.find("if(markerGrew || markerFirstSeen){")
-        assert idx > 0, "brak warunku reagujacego na wzrost markera"
+        assert idx > 0, "missing condition that reacts to marker growth"
         blok = SESSIONS_JS[idx:idx + 700]
         assert "loadSession(" in blok, (
-            "wzrost markera musi prowadzic do przeladowania transkryptu"
+            "marker growth must lead to transcript reload"
         )
         assert "return 'reloaded'" in blok, (
-            "wynik musi byc raportowany jak w pozostalych sciezkach"
+            "result must be reported as in the other paths"
         )
         # oryginalny warunek repo NIE moze byc zmieniony
         assert "if(remoteCount !== localCount){" in SESSIONS_JS, (
-            "ksztalt istniejacego warunku musi zostac nietkniety"
+            "the shape of the existing condition must remain untouched"
         )
 
-    def test_marker_zapisywany_przy_wczytaniu_tresci(self):
-        """Bez tego porownanie znow zderzyloby rozne przestrzenie."""
-        wystapienia = SESSIONS_JS.count("S.session._transcript_marker")
-        assert wystapienia >= 3, (
-            f"marker ustawiany w {wystapienia} miejscach - musi towarzyszyc "
-            "kazdemu przypisaniu tresci (pelne wczytanie, druga sciezka, "
-            "odswiezenie CLI)"
+    def test_marker_is_stored_when_content_loads(self):
+        """Without this, the comparison would again collide with different spaces."""
+        occurrences = SESSIONS_JS.count("S.session._transcript_marker")
+        assert occurrences >= 3, (
+            f"marker is set in {occurrences} places - it must accompany every content assignment "
+            "(full load, second path, CLI refresh)"
         )
 
-    def test_sciezka_odswiezania_cli_ustawia_marker(self):
-        """Ta sciezka nadpisuje message_count dlugoscia OKNA (trzecia przestrzen)."""
+    def test_cli_refresh_path_sets_the_marker(self):
+        """This path overwrites message_count with the WINDOW length (the third space)."""
         idx = SESSIONS_JS.find("S.session.message_count = next.length;")
         assert idx > 0
         okno = SESSIONS_JS[idx:idx + 900]
         assert "_transcript_marker" in okno, (
-            "bez markera ta sciezka zostawialaby lokalny stan niespojny z sonda"
+            "without the marker, this path would leave local state inconsistent with the poll"
         )
 
-    def test_marker_ma_bezpieczny_odwrot(self):
-        """Stary serwer nie zna pola - strona nie moze przestac dzialac."""
+    def test_marker_has_a_safe_fallback(self):
+        """An old server does not know this field - the page must not stop working."""
         idx = SESSIONS_JS.find("const remoteMarker")
         assert idx > 0
         okno = SESSIONS_JS[idx:idx + 400]
         assert "remoteLast" in okno, (
-            "brak markera musi degradowac sie do znacznika ostatniej wiadomosci"
+            "missing marker must degrade to the last-message timestamp"
         )
 
 
-class TestSondaZostajeSiatkaBezpieczenstwa:
-    def test_odstep_sondy_nie_zostal_skrocony(self):
-        """Skrocenie sondy byloby leczeniem objawu: kanal SSE juz dziala."""
+class TestPollingStaysAsSafetyNet:
+    def test_polling_interval_was_not_shortened(self):
+        """Shortening the probe would treat the symptom: the SSE channel already works."""
         m = re.search(r"const _activeSessionExternalRefreshMs = (\d+);", SESSIONS_JS)
-        assert m, "nie znaleziono odstepu sondy"
+        assert m, "poll interval not found"
         assert int(m.group(1)) >= 30000, (
-            "sonda ma pozostac siatka bezpieczenstwa; tresc dostarcza SSE"
+            "the poll must remain a safety net; content is delivered by SSE"
         )
 
-    def test_powod_pozostawienia_jest_udokumentowany(self):
+    def test_the_reason_for_keeping_it_is_documented(self):
         idx = SESSIONS_JS.find("const _activeSessionExternalRefreshMs")
         okno = SESSIONS_JS[max(0, idx - 1200):idx]
         assert "sessions_changed" in okno or "SSE" in okno, (
-            "decyzja o pozostawieniu 30 s musi byc uzasadniona w kodzie"
+            "the decision to keep 30 s must be justified in code"
         )

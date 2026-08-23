@@ -1688,12 +1688,13 @@ async function _switchProfileForSessionLoad(profile){
 
 async function loadSession(sid){
   const opts = arguments[1] || {};
-  // a11y: wchodzimy do INNEJ rozmowy, wiec stan "Hermes pracuje" z poprzedniej
-  // przestaje obowiazywac. Gasimy go TU, przy samym przelaczeniu, bo watchdog
-  // obcej sesji sprawdza adres dopiero w swoim cyklu (co 5 s) i przez ten czas
-  // czytnik ekranu mowilby o pracy, ktorej w tej rozmowie nie ma.
-  // Zmierzone: po klikniecu innego wiersza cichy status trzymal
-  // "Hermes is working - 5 s - Processed" z poprzedniej rozmowy.
+  // a11y: we are entering a DIFFERENT conversation, so the "Hermes is working"
+  // state from the previous one stops applying. Clear it HERE, at the actual
+  // switch, because the other session's watchdog only checks the address in its
+  // own cycle (every 5 s) and during that time a screen reader would announce
+  // work that does not exist in this conversation.
+  // Measured: after clicking a different row, the silent status kept
+  // "Hermes is working - 5 s - Processed" from the previous conversation.
   if(typeof a11yRunIsActive==='function' && typeof a11yRunFinished==='function'){
     try{ if(a11yRunIsActive()) a11yRunFinished(); }catch(_e){ /* best effort */ }
   }
@@ -3193,8 +3194,8 @@ async function _ensureMessagesLoaded(sid, opts) {
   if (!data || !data.session) return;
   _messagesTruncated = !!data.session._messages_truncated;
   _oldestIdx = data.session._messages_offset || 0;
-  // Numeracja naglowkow jest GLOBALNA (pozycja w calej rozmowie), wiec musi
-  // sie przeliczyc przy KAZDEJ zmianie okna - takze przy doladowaniu wstecz.
+  // Heading numbering is GLOBAL (position in the whole conversation), so it
+  // must be recomputed on EVERY window change, including backward loading.
   if (typeof a11ySetTurnNumbering === 'function') {
     a11ySetTurnNumbering(data.session._visible_turns_before, data.session._visible_turns_total);
   }
@@ -3248,9 +3249,9 @@ async function _ensureMessagesLoaded(sid, opts) {
   if(S.session&&S.session.session_id===sid){
     if(typeof _adoptRegenerationRevision==='function') _adoptRegenerationRevision(data.session);
     S.session.message_count=Number(data.session.message_count || msgs.length);
-    // Zapamietaj marker z TEJ SAMEJ odpowiedzi, z ktorej bierzemy tresc -
-    // sonda porownuje go potem ze swoim; bez tego porownywalibysmy znowu
-    // wielkosci z roznych przestrzeni.
+    // Remember the marker from THIS SAME response that provides the content -
+    // the probe compares against it later; without this we would again compare
+    // values from different coordinate spaces.
     S.session._transcript_marker=Number(data.session._transcript_marker
       || data.session.last_message_at || data.session.updated_at || 0);
     S.lastUsage={...(data.session.last_usage||S.lastUsage||{})};
@@ -3857,8 +3858,8 @@ async function _loadOlderMessages() {
     _messageRenderWindowSize=_currentMessageRenderWindowSize()+Math.max(addedRenderable, MESSAGE_RENDER_WINDOW_DEFAULT);
     _messagesTruncated = !!responseSession._messages_truncated;
     _oldestIdx = responseSession._messages_offset || 0;
-    // Doladowanie wstecz ZMNIEJSZA przesuniecie: numery starszych wypowiedzi
-    // musza zostac te same, a nowo odslonietych - nizsze.
+    // Backward loading DECREASES the offset: the numbers of older turns must
+    // stay the same, and the newly revealed ones must be lower.
     if (typeof a11ySetTurnNumbering === 'function') {
       a11ySetTurnNumbering(responseSession._visible_turns_before, responseSession._visible_turns_total);
     }
@@ -3958,7 +3959,7 @@ async function _ensureAllMessagesLoaded() {
       } else {
         delete S.session.regeneration_revision;
       }
-      // marker z tej samej odpowiedzi (patrz wyzej)
+      // marker from the same response (see above)
       S.session._transcript_marker = Number(data.session._transcript_marker
         || data.session.last_message_at || data.session.updated_at || 0);
     }
@@ -6016,15 +6017,15 @@ async function refreshActiveSessionIfExternallyUpdated(reason){
     if(S.busy || S.activeStreamId) return 'skipped';
     const remoteCount = Number(data.session.message_count || 0);
     const remoteLast = Number(data.session.last_message_at || data.session.updated_at || 0);
-    // Marker porownywalny MIEDZY ZAPYTANIAMI. Zmierzony defekt (18.08.2026,
-    // zgloszenie "w terminalu mam nowe tresci, na stronie nie aktualizuja sie
-    // rownolegle"): /api/session zwraca INNY message_count zaleznie od ?messages= —
-    // 1346 przy messages=1 (po scaleniu, tyle pokazuje transkrypt) i 2397 przy
-    // messages=0 (surowe wiersze). Ta sonda pyta metadanymi, a wczytanie sesji
-    // pobiera wiadomosci, wiec porownanie remoteCount!==localCount zderzalo DWIE
-    // ROZNE PRZESTRZENIE: bylo prawdziwe zawsze i nie odrozanialo "doszla nowa
-    // tresc" od "te same dane". Znacznik czasu jest identyczny w obu ksztaltach
-    // odpowiedzi (sprawdzone), wiec to on jest uczciwym sygnalem zmiany.
+    // Marker comparable ACROSS REQUESTS. Measured defect (2026-08-18, report:
+    // "I have new content in the terminal, but the page is not updating in
+    // parallel"): /api/session returns a DIFFERENT message_count depending on
+    // ?messages= — 1346 with messages=1 (after merge, what the transcript shows)
+    // and 2397 with messages=0 (raw rows). This probe asks for metadata, while
+    // loading the session fetches messages, so remoteCount!==localCount was
+    // colliding TWO DIFFERENT COORDINATE SPACES: always true and unable to tell
+    // "new content arrived" from "the same data". The timestamp is identical in
+    // both response shapes (verified), so it is the honest change signal.
     const remoteMarker = Number(data.session._transcript_marker || remoteLast || 0);
     const localMarker = Number(
       (S.session && S.session._transcript_marker) || localLast || 0);
@@ -6047,11 +6048,11 @@ async function refreshActiveSessionIfExternallyUpdated(reason){
     // destructive reload in that case and just refresh the lightweight sidebar
     // list metadata, advancing the local last-seen marker so the same metadata
     // bump doesn't re-trigger on every subsequent poll.
-    // Marker urosl = doszla tresc, ktorej ta karta nie ma. Sprawdzane OSOBNO,
-    // a nie dopisane do warunku ponizej, bo trzy testy w repozytorium
-    // (tests/test_webui_external_refresh_frontend.py) asertuja DOSLOWNY ksztalt
-    // `if(remoteCount !== localCount){` i doklejenie do niego czegokolwiek je
-    // zerwie. Zachowujemy ich litere, a nowy warunek trzymamy obok.
+    // Marker grew = content arrived that this tab does not have. Checked
+    // SEPARATELY, not appended to the condition below, because three repository
+    // tests (tests/test_webui_external_refresh_frontend.py) assert the LITERAL
+    // shape of `if(remoteCount !== localCount){` and adding anything to it would
+    // break them. We preserve their exact text and keep the new condition beside it.
     if(markerGrew || markerFirstSeen){
       const _recoveryReasonsMarker = {visible:true, focus:true};
       await loadSession(sid, {
@@ -6449,10 +6450,10 @@ function startGatewaySSE(){
                       if(newestTs){
                         S.session.last_message_at = newestTs;
                         S.session.updated_at = newestTs;
-                        // Marker MUSI isc razem z trescia: ta sciezka nadpisuje
-                        // message_count dlugoscia OKNA (trzecia przestrzen), wiec
-                        // bez tego sonda porownywalaby swoj marker ze starym i
-                        // przeladowywala transkrypt bez potrzeby.
+                        // The marker MUST travel with the content: this path
+                        // overwrites message_count with the WINDOW length (a third
+                        // coordinate space), so without this the probe would compare
+                        // against the stale marker and reload the transcript needlessly.
                         S.session._transcript_marker = newestTs;
                       }
                     }
@@ -7864,9 +7865,10 @@ function renderSessionListFromCache(){
     allChip.className='project-chip'+(!_activeProject?' active':'');
     allChip.textContent='All';
     allChip.onclick=()=>{_setActiveProjectFilter(null);};
-    // Chipy filtrow to grupa przelacznikow: aktywny byl oznaczony WYLACZNIE
-    // klasa CSS, wiec czytnik ekranu nie mowil, po czym lista jest filtrowana.
-    // capability-guarded: harnessy node podstawiaja atrapy DOM bez tych metod.
+    // Filter chips are a group of toggles: the active one used to be marked
+    // ONLY by a CSS class, so a screen reader did not say what the list was
+    // filtered by. capability-guarded: Node harnesses inject DOM stubs without
+    // these methods.
     if(typeof a11yAsButton==='function') a11yAsButton(allChip,{pressed:!_activeProject,label:'All conversations'});
     bar.appendChild(allChip);
     // "Unassigned" chip — only when there are sessions with no project to
@@ -8111,9 +8113,10 @@ function renderSessionListFromCache(){
       _saveCollapsed();
       renderSessionListFromCache();
     };
-    // Naglowek grupy zwija i rozwija liste — to przycisk, nie ozdoba. Stan
-    // podajemy przez aria-expanded, bo obrocony daszek widzi tylko wzrok.
-    // capability-guarded: harnessy node podstawiaja atrapy DOM bez tych metod.
+    // The group header collapses and expands the list — it is a button, not
+    // decoration. We expose the state via aria-expanded because only sighted
+    // users can see the rotated chevron. capability-guarded: Node harnesses
+    // inject DOM stubs without these methods.
     if(typeof a11yAsButton==='function') a11yAsButton(hdr,{expanded:!isGroupCollapsed,label:g.label});
     wrapper.appendChild(hdr);
     let groupTopPad=0;
@@ -8224,10 +8227,11 @@ function renderSessionListFromCache(){
       const cbWrapper=document.createElement('label');cbWrapper.className='session-select-cb-wrapper';
       const cb=document.createElement('input');cb.type='checkbox';cb.className='session-select-cb';
       cb.dataset.sid=s.session_id;cb.checked=_selectedSessions.has(s.session_id);
-      // Pole wyboru bez nazwy czytnik ekranu oglasza jako gole "pole wyboru,
-      // nieoznaczone" — przy kilku wierszach nie da sie ustalic, ktorej rozmowy
-      // dotyczy (WCAG 4.1.2). Nazwa musi wskazywac konkretna rozmowe. Etykieta
-      // nie moze byc widoczna, bo uklad graficzny pokazuje sam kwadracik.
+      // A nameless checkbox is announced by a screen reader as a bare
+      // "checkbox, not checked" — with several rows there is no way to tell
+      // which conversation it belongs to (WCAG 4.1.2). The name must point to a
+      // specific conversation. The label cannot be visible because the visual
+      // layout only shows the square.
       const cbNazwa=(typeof t==='function'?t('session_batch_select_one')||'Select conversation':'Select conversation');
       cb.setAttribute('aria-label',cbNazwa+': '+(cleanTitle||'Untitled'));
       cb.onchange=(e)=>{e.stopPropagation();setSessionSelected(s.session_id,cb.checked);};
@@ -8266,21 +8270,21 @@ function renderSessionListFromCache(){
       branchInd.title=_sessionForkTooltip(parentLabel);
       titleRow.appendChild(branchInd);
     }
-    // Tytul jest PRAWDZIWYM linkiem (<a href="/session/<id>">), nie divem z
-    // obsluga klikniecia. Powod: wiersz listy przenosi do innej rozmowy, wiec
-    // czytnik ekranu ma o tym powiedziec ("link"), a uzytkownik ma tu dojsc
-    // tabulacja i nawigacja po linkach (WCAG 4.1.2 nazwa/rola/wartosc oraz
-    // 2.1.1 dostep z klawiatury). Jako <a href> dziala tez bez naszego kodu:
-    // Ctrl+klik i srodkowy przycisk otwieraja nowa karte, menu kontekstowe
-    // przegladarki pozwala skopiowac adres rozmowy.
-    // Elementem pozostaje TYTUL, a nie caly wiersz, bo wiersz zawiera wlasne
-    // kontrolki (przycisk akcji, pole wyboru) — <a> nie moze zawierac
-    // przyciskow, a zagniezdzona kontrolka w linku jest nieosiagalna.
+    // The title is a REAL link (<a href="/session/<id>">), not a div with a
+    // click handler. Reason: the list row moves to another conversation, so a
+    // screen reader should say that ("link"), and the user should be able to
+    // reach it with Tab and link navigation (WCAG 4.1.2 name/role/value and
+    // 2.1.1 keyboard access). As an <a href> it also works without our code:
+    // Ctrl+click and middle-click open a new tab, and the browser context menu
+    // can copy the conversation address.
+    // The element remains the TITLE, not the whole row, because the row contains
+    // its own controls (action button, checkbox) — <a> cannot contain buttons,
+    // and a nested control inside a link is unreachable.
     const title=document.createElement('a');
     title.className='session-title';
     try{ title.setAttribute('href',_sessionUrlForSid(s.session_id)); }catch(_e){ /* brak historii/URL — zostaje sam tekst */ }
-    // Link w wierszu z gestem przesuniecia: wlasne przeciaganie linku przez
-    // przegladarke rozjezdza sie ze swipe'em, wiec je wylaczamy.
+    // Link inside a row with a swipe gesture: the browser's own link dragging
+    // conflicts with the swipe, so we disable it.
     title.setAttribute('draggable','false');
     if(isActive) title.setAttribute('aria-current','page');
     const displayTitle=cleanTitle||'Untitled';
@@ -8288,16 +8292,16 @@ function renderSessionListFromCache(){
     if(titleMatched) _appendHighlightedText(title,displayTitle,searchQueryRaw,'session-search-hit');
     else title.textContent=displayTitle;
     title.title=_sessionFullTitleTooltip(rawTitle,cleanTitle,s);
-    // Aktywacja linku tytulu. Trzy drogi, celowo rozdzielone:
-    // 1. Ctrl/Cmd/Shift/Alt/srodkowy przycisk — NIE ruszamy niczego, niech
-    //    przegladarka otworzy rozmowe w nowej karcie/oknie. Tego wlasnie
-    //    uzytkownik oczekuje od linku i tego nie da sie zrobic na divie.
-    // 2. Klawiatura (Enter na skupionym linku daje click z detail===0) —
-    //    otwieramy w tej karcie sciezka aplikacji, bez przeladowania.
-    // 3. Zwykly klik myszka/palcem — tu nawigacje ma juz gest wiersza
-    //    (onpointerup/touchend, wraz z rozpoznaniem dwukliku i przesuniecia),
-    //    wiec tylko wstrzymujemy domyslne przejscie przegladarki, zeby nie
-    //    przeladowac calej aplikacji.
+    // Activating the title link. Three paths, deliberately split:
+    // 1. Ctrl/Cmd/Shift/Alt/middle-click — we do NOT touch anything; let the
+    //    browser open the conversation in a new tab/window. That is exactly what
+    //    the user expects from a link, and a div cannot provide it.
+    // 2. Keyboard (Enter on a focused link yields a click with detail===0) —
+    //    open it in this tab through the app path, without reloading.
+    // 3. Regular mouse/touch click — navigation is already owned by the row
+    //    gesture here (onpointerup/touchend, including double-click and swipe
+    //    recognition), so we only prevent the browser's default navigation to
+    //    avoid reloading the whole app.
     title.addEventListener('click',(e)=>{
       if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button===1) return;
       e.preventDefault();

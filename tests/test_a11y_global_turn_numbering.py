@@ -1,29 +1,30 @@
-"""Numery wypowiedzi musza byc GLOBALNE, nie liczone od pierwszego wiersza w DOM.
+"""Turn numbers must be GLOBAL, not counted from the first row in the DOM.
 
-Zgloszenie (18.08.2026): "w dlugiej sesji numerki sa 1, 2, 3, mimo ze sesja ma
-kilkadziesiat wiadomosci; wolalbym, zeby wyliczaly sie globalnie - uzytkownik ma
-miec jasny oglad, ze sesja sie rozwija".
+Reported issue (18.08.2026): "in a long session the little numbers are 1, 2, 3, even
+though the session has dozens of messages; I would prefer them to be calculated
+globally - a screen reader user should have a clear sense that the session is
+progressing".
 
-WebUI wczytuje tylko ogon rozmowy (wstecz doladowuje sie przyciskiem), a
-numeracja naglowkow liczyla od pierwszego wiersza W DOM. Skutki byly dwa i oba
-psuja orientacje uzytkownika czytnika ekranu:
- * "1." przy wypowiedzi numer 576 nie mowilo NIC o miejscu w rozmowie,
- * ta sama wypowiedz zmieniala numer po kazdym doladowaniu okna.
+WebUI loads only the tail of the conversation (older content is loaded backward
+with a button), and heading numbering was counted from the first row IN THE DOM.
+That had two effects, both harming a screen reader user's orientation:
+ * "1." on turn number 576 said NOTHING about the position in the conversation,
+ * the same turn changed number after every backfill of the window.
 
-ZMIERZONA PULAPKA WSPOLRZEDNYCH: nie wolno tu uzyc surowego
-``_messages_offset``, bo on liczy wiersze magazynowe, a numeracja dotyczy
-WIDOCZNYCH wypowiedzi. Na zywej sesji: offset 978 dla okna, w ktorym bylo 100
-wypowiedzi na 194 wiersze (reszta to wiersze narzedzi zwijane w karty).
-Serwer liczy wiec przesuniecie tym SAMYM predykatem
-``_message_counts_as_renderable_for_window``, ktory wycial okno.
+MEASURED COORDINATE TRAP: raw ``_messages_offset`` must not be used here,
+because it counts storage rows while numbering applies to VISIBLE turns. In a
+live session: offset 978 for a window that contained 100 turns across 194 rows
+(the rest were tool rows collapsed into cards). So the server calculates the
+offset with the SAME predicate,
+``_message_counts_as_renderable_for_window``, that sliced the window.
 
-Zmierzone wlasnosci odpowiedzi serwera (krok130, sesja 576 wypowiedzi):
+Measured properties of the server response (step130, session with 576 turns):
     okno 10  -> before 566, w oknie 10,  total 576
     okno 30  -> before 546, w oknie 30,  total 576
     okno 100 -> before 476, w oknie 100, total 576
     okno 300 -> before 276, w oknie 300, total 576
-czyli numer ostatniej wypowiedzi to 576 NIEZALEZNIE od rozmiaru okna - to jest
-sedno zgloszenia.
+so the last turn number is 576 REGARDLESS of window size - that is the core of
+the report.
 """
 
 from pathlib import Path
@@ -38,14 +39,14 @@ A11Y_JS = (REPO / "static" / "a11y-helpers.js").read_text(encoding="utf-8")
 ROUTES_PY = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
 NODE = shutil.which("node")
 
-# --- czesc serwerowa: liczenie przesuniecia w przestrzeni WIDOCZNYCH wierszy ---
+# --- server-side part: calculate offset in the space of VISIBLE rows ---
 
 import sys
 sys.path.insert(0, str(REPO))
 
 
-def _wiersze(*role):
-    """Buduje liste wierszy: 'u'/'a' = wypowiedz, 't' = wiersz narzedzia."""
+def _rows(*role):
+    """Build a row list: 'u'/'a' = turn, 't' = tool row."""
     out = []
     for r in role:
         if r == "u":
@@ -57,46 +58,46 @@ def _wiersze(*role):
     return out
 
 
-class TestLiczeniePrzesunieciaNaSerwerze:
-    """``_renderable_count_before`` musi liczyc WYPOWIEDZI, nie wiersze."""
+class TestServerSideOffsetCalculation:
+    """``_renderable_count_before`` must count TURNS, not rows."""
 
-    def test_pomija_wiersze_narzedzi(self):
+    def test_tool_rows_are_skipped(self):
         from api.routes import _renderable_count_before
-        # 10 wierszy, z czego 4 to wypowiedzi
-        wiersze = _wiersze("u", "a", "t", "t", "u", "a", "t", "t", "t", "t")
-        assert _renderable_count_before(wiersze, 10) == 4, (
-            "liczenie surowych wierszy dawaloby 10 i numery rozjechalyby sie "
-            "o liczbe wierszy narzedzi"
+        # 10 rows, 4 of them are turns
+        rows = _rows("u", "a", "t", "t", "u", "a", "t", "t", "t", "t")
+        assert _renderable_count_before(rows, 10) == 4, (
+            "counting raw rows would yield 10 and numbering would drift by "
+            "the number of tool rows"
         )
 
     def test_zero_i_brak_offsetu(self):
         from api.routes import _renderable_count_before
-        wiersze = _wiersze("u", "a")
-        assert _renderable_count_before(wiersze, 0) == 0
-        assert _renderable_count_before(wiersze, None) == 0
+        rows = _rows("u", "a")
+        assert _renderable_count_before(rows, 0) == 0
+        assert _renderable_count_before(rows, None) == 0
 
     def test_offset_wiekszy_niz_lista(self):
         from api.routes import _renderable_count_before
-        wiersze = _wiersze("u", "a", "t")
-        assert _renderable_count_before(wiersze, 999) == 2
+        rows = _rows("u", "a", "t")
+        assert _renderable_count_before(rows, 999) == 2
 
     def test_bledne_dane_nie_wywracaja(self):
         from api.routes import _renderable_count_before
         assert _renderable_count_before(None, 5) == 0
-        assert _renderable_count_before(_wiersze("u"), "abc") == 0
-        assert _renderable_count_before(_wiersze("u"), -3) == 0
+        assert _renderable_count_before(_rows("u"), "abc") == 0
+        assert _renderable_count_before(_rows("u"), -3) == 0
 
-    def test_api_session_wystawia_wspolrzedne(self):
+    def test_api_session_exposes_the_coordinates(self):
         assert '"_visible_turns_before"' in ROUTES_PY
         assert '"_visible_turns_total"' in ROUTES_PY
         idx = ROUTES_PY.find('raw["_visible_turns_before"]')
         assert idx > 0
         assert "_renderable_count_before" in ROUTES_PY[:idx], (
-            "przesuniecie musi byc policzone predykatem widocznosci"
+            "the offset must be calculated with the visibility predicate"
         )
 
 
-# --- czesc przegladarkowa: numeracja naglowkow ---
+# --- browser-side part: heading numbering ---
 
 HARNESS = r"""
 const fs = require('fs');
@@ -112,8 +113,8 @@ function mkEl(tag, klasy) {
     removeAttribute(k) { delete this.attrs[k]; },
     appendChild(c) { c.parentNode = this; c.parentElement = this; this.children.push(c); return c; },
     insertBefore(c) { c.parentNode = this; c.parentElement = this; this.children.unshift(c); return c; },
-    // firstElementChild/firstChild MUSZA byc wyliczane: kod wstawia naglowek na
-    // poczatek, a zapamietane pole pokazywaloby stale podpis roli.
+    // firstElementChild/firstChild MUST be computed: the code inserts the
+    // heading at the beginning, and a cached field would keep showing the role label.
     get firstElementChild() { return this.children[0] || null; },
     get firstChild() { return this.children[0] || null; },
     set className(v) { for (const c of String(v || '').split(/\s+/)) if (c) this.classes.add(c); },
@@ -187,7 +188,7 @@ function zbudujOkno(n) {
   }
 }
 
-function numery() {
+function numbers() {
   return messages.children
     .map((r) => (r.firstElementChild && r.firstElementChild.textContent) || '')
     .filter((s) => s);
@@ -197,136 +198,136 @@ const out = {};
 
 zbudujOkno(3);
 ctx.a11ySetTurnNumbering(0, 3);
-out.krotka = numery();
+out.short_key = numbers();
 
 zbudujOkno(3);
 ctx.a11ySetTurnNumbering(573, 576);
-out.dluga = numery();
+out.long_key = numbers();
 
 zbudujOkno(6);
 ctx.a11ySetTurnNumbering(570, 576);
-out.poDoladowaniu = numery();
+out.poDoladowaniu = numbers();
 
 zbudujOkno(2);
 ctx.a11ySetTurnNumbering(0, 2);
-out.przedZmiana = numery();
+out.beforeChange = numbers();
 ctx.a11ySetTurnNumbering(100, 102);
-out.poZmianie = numery();
-const a = numery().join('|');
+out.afterChange = numbers();
+const a = numbers().join('|');
 ctx.a11ySetTurnNumbering(100, 102);
-out.idempotentne = (a === numery().join('|'));
+out.idempotentne = (a === numbers().join('|'));
 
 zbudujOkno(2);
 ctx.a11ySetTurnNumbering(undefined, undefined);
-out.brakDanych = numery();
+out.brakDanych = numbers();
 ctx.a11ySetTurnNumbering(-5, -1);
-out.ujemne = numery();
+out.ujemne = numbers();
 ctx.a11ySetTurnNumbering('abc', 'xyz');
-out.tekst = numery();
+out.text = numbers();
 ctx.a11ySetTurnNumbering(10.7, 20.2);
-out.niecalkowite = numery();
+out.niecalkowite = numbers();
 
 zbudujOkno(1);
 ctx.a11ySetTurnNumbering(42, 60);
 const h = messages.children[0].firstElementChild;
-out.naglowek = { tag: h && h.tagName, tekst: h && h.textContent };
+out.heading = { tag: h && h.tagName, text: h && h.textContent };
 
 console.log(JSON.stringify(out));
 """
 
 
 @pytest.fixture(scope="module")
-def zachowanie(tmp_path_factory):
+def behaviour(tmp_path_factory):
     if not NODE:
-        pytest.skip("node niedostepny - nie da sie zmierzyc zachowania")
-    skrypt = tmp_path_factory.mktemp("num") / "harness.js"
-    skrypt.write_text(
+        pytest.skip("node unavailable - cannot measure behavior")
+    script = tmp_path_factory.mktemp("num") / "harness.js"
+    script.write_text(
         f"const A11Y_PATH = {json.dumps(str(REPO / 'static' / 'a11y-helpers.js'))};\n"
         + HARNESS,
         encoding="utf-8",
     )
-    proc = subprocess.run([NODE, str(skrypt)], capture_output=True, text=True, timeout=90)
+    proc = subprocess.run([NODE, str(script)], capture_output=True, text=True, timeout=90)
     assert proc.returncode == 0, f"harness padl: {proc.stderr[-2000:]}"
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
 class TestNumeracjaGlobalna:
-    def test_dluga_sesja_nie_zaczyna_od_jednego(self, zachowanie):
-        """Sedno zgloszenia: okno 3 wypowiedzi, 573 ukryte -> numery 574-576."""
-        d = zachowanie["dluga"]
-        assert d[0].startswith("574"), f"pierwszy naglowek: {d[0]}"
-        assert d[-1].startswith("576"), f"ostatni naglowek: {d[-1]}"
+    def test_dluga_sesja_nie_zaczyna_od_jednego(self, behaviour):
+        """Core report: a 3-turn window, 573 hidden -> numbers 574-576."""
+        d = behaviour["long_key"]
+        assert d[0].startswith("574"), f"pierwszy heading: {d[0]}"
+        assert d[-1].startswith("576"), f"ostatni heading: {d[-1]}"
 
-    def test_krotka_sesja_numeruje_od_jednego(self, zachowanie):
-        assert zachowanie["krotka"][0].startswith("1")
+    def test_krotka_sesja_numeruje_od_jednego(self, behaviour):
+        assert behaviour["short_key"][0].startswith("1")
 
-    def test_pierwszy_naglowek_podaje_ile_jest_razem(self, zachowanie):
-        """Uzytkownik ma widziec, ze sesja sie rozwija."""
-        assert "/576" in zachowanie["dluga"][0]
+    def test_pierwszy_naglowek_podaje_ile_jest_razem(self, behaviour):
+        """The user should perceive that the session is progressing."""
+        assert "/576" in behaviour["long_key"][0]
 
-    def test_pozostale_naglowki_nie_powtarzaja_sumy(self, zachowanie):
-        """Suma przy kazdym naglowku byla gadatliwa przy skakaniu po naglowkach."""
-        for n in zachowanie["dluga"][1:]:
-            assert "/576" not in n, f"naglowek powtarza sume: {n}"
+    def test_later_headings_do_not_repeat_the_total(self, behaviour):
+        """Repeating the total on every heading was verbose during heading navigation."""
+        for n in behaviour["long_key"][1:]:
+            assert "/576" not in n, f"heading repeats the total: {n}"
 
 
 class TestDoladowanieWstecz:
-    def test_numery_starszych_wypowiedzi_nie_skacza(self, zachowanie):
-        """Ta sama wypowiedz musi miec ten sam numer po doladowaniu."""
-        assert zachowanie["poDoladowaniu"][-1].startswith("576"), (
-            f"ostatni po doladowaniu: {zachowanie['poDoladowaniu'][-1]}"
+    def test_numery_starszych_wypowiedzi_nie_skacza(self, behaviour):
+        """The same turn must keep the same number after backfill."""
+        assert behaviour["poDoladowaniu"][-1].startswith("576"), (
+            f"ostatni po doladowaniu: {behaviour['poDoladowaniu'][-1]}"
         )
 
-    def test_nowo_odsloniete_maja_nizsze_numery(self, zachowanie):
-        assert zachowanie["poDoladowaniu"][0].startswith("571")
+    def test_nowo_odsloniete_maja_nizsze_numery(self, behaviour):
+        assert behaviour["poDoladowaniu"][0].startswith("571")
 
-    def test_suma_sie_nie_zmienia(self, zachowanie):
-        assert "/576" in zachowanie["poDoladowaniu"][0]
+    def test_suma_sie_nie_zmienia(self, behaviour):
+        assert "/576" in behaviour["poDoladowaniu"][0]
 
-    def test_zmiana_przesuniecia_przelicza_istniejace_naglowki(self, zachowanie):
-        """Bez przeliczenia doladowanie zostawiloby stare numery."""
-        assert zachowanie["przedZmiana"][0] != zachowanie["poZmianie"][0]
-        assert zachowanie["poZmianie"][0].startswith("101")
+    def test_changing_the_offset_recomputes_existing_headings(self, behaviour):
+        """Without recomputation, backfill would leave stale numbers."""
+        assert behaviour["beforeChange"][0] != behaviour["afterChange"][0]
+        assert behaviour["afterChange"][0].startswith("101")
 
-    def test_powtorne_ustawienie_nic_nie_zmienia(self, zachowanie):
-        assert zachowanie["idempotentne"] is True
+    def test_powtorne_ustawienie_nic_nie_zmienia(self, behaviour):
+        assert behaviour["idempotentne"] is True
 
 
 class TestOdpornoscNaBledneDane:
-    """Brak lub zle dane nie moga zepsuc numeracji - lepiej lokalna niz zadna."""
+    """Missing or bad data must not break numbering - local is better than none."""
 
-    def test_brak_danych_daje_numeracje_lokalna(self, zachowanie):
-        assert zachowanie["brakDanych"][0].startswith("1")
+    def test_brak_danych_daje_numeracje_lokalna(self, behaviour):
+        assert behaviour["brakDanych"][0].startswith("1")
 
-    def test_liczby_ujemne_odrzucone(self, zachowanie):
-        assert zachowanie["ujemne"][0].startswith("1")
+    def test_liczby_ujemne_odrzucone(self, behaviour):
+        assert behaviour["ujemne"][0].startswith("1")
 
-    def test_tekst_zamiast_liczby_odrzucony(self, zachowanie):
-        assert zachowanie["tekst"][0].startswith("1")
+    def test_tekst_zamiast_liczby_odrzucony(self, behaviour):
+        assert behaviour["text"][0].startswith("1")
 
-    def test_liczby_niecalkowite_obcinane(self, zachowanie):
-        assert zachowanie["niecalkowite"][0].startswith("11")
+    def test_liczby_niecalkowite_obcinane(self, behaviour):
+        assert behaviour["niecalkowite"][0].startswith("11")
 
 
 class TestNaglowekJestCzytelnyDlaCzytnika:
-    def test_naglowek_to_h2(self, zachowanie):
-        assert zachowanie["naglowek"]["tag"] == "H2"
+    def test_naglowek_to_h2(self, behaviour):
+        assert behaviour["heading"]["tag"] == "H2"
 
-    def test_naglowek_zawiera_globalny_numer(self, zachowanie):
-        assert zachowanie["naglowek"]["tekst"].startswith("43")
+    def test_naglowek_zawiera_globalny_numer(self, behaviour):
+        assert behaviour["heading"]["text"].startswith("43")
 
 
-class TestWszystkieSciezkiWczytaniaOkna:
-    """Numeracja musi byc ustawiana wszedzie, gdzie zmienia sie okno."""
+class TestEveryWindowLoadPath:
+    """Numbering must be set everywhere the window changes."""
 
     def test_wszystkie_miejsca_ustawiaja_numeracje(self):
         trafienia = 0
-        for nazwa in ("messages.js", "sessions.js", "ui.js"):
-            trafienia += (REPO / "static" / nazwa).read_text(
+        for name in ("messages.js", "sessions.js", "ui.js"):
+            trafienia += (REPO / "static" / name).read_text(
                 encoding="utf-8").count("a11ySetTurnNumbering(")
         assert trafienia >= 4, (
-            f"tylko {trafienia} wpiec - okno zmienia sie w czterech miejscach "
-            "(pelne wczytanie, doladowanie wstecz, odswiezenie, przelaczenie sesji)"
+            f"only {trafienia} hookups - the window changes in four places "
+            "(full load, backward backfill, refresh, session switch)"
         )
 
     def test_doladowanie_wstecz_ma_wpiecie(self):
@@ -334,5 +335,5 @@ class TestWszystkieSciezkiWczytaniaOkna:
         idx = sessions.find("_oldestIdx = responseSession._messages_offset")
         assert idx > 0
         assert "a11ySetTurnNumbering" in sessions[idx:idx + 600], (
-            "bez tego doladowanie starszych wiadomosci zostawiloby stare numery"
+            "without this, loading older messages would leave stale numbers"
         )

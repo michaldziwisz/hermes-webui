@@ -6213,12 +6213,12 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
             try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
             if(typeof _setActiveSessionUrl==='function') _setActiveSessionUrl(S.session.session_id);
           }
-          // Numeracja naglowkow jest GLOBALNA - przelicz przy zmianie okna.
-          // WPIETE TUTAJ, nie przy _oldestIdx wyzej: test cudzy
-          // (tests/test_session_rotate_url_sync.py) sprawdza blok o STALEJ
-          // dlugosci znakow wokol tego miejsca i dwie dodatkowe linijki wypchnely
-          // z tego okna oczekiwane wywolanie _setActiveSessionUrl. Numeracja
-          // dziala tak samo, bo obie sciezki koncza sie ta sama funkcja.
+          // Heading numbering is GLOBAL - recompute it when the window changes.
+          // HOOKED HERE, not next to _oldestIdx above: an external test
+          // (tests/test_session_rotate_url_sync.py) checks a block with a FIXED
+          // character length around this spot, and two extra lines pushed the
+          // expected _setActiveSessionUrl call out of that window. Numbering
+          // works the same because both paths end in the same function.
           if(typeof a11ySetTurnNumbering==='function')a11ySetTurnNumbering(d.session._visible_turns_before, d.session._visible_turns_total);
           const _markerOnlyAssistantError=_replaceMarkerOnlyAssistantWithStreamError(S.messages);
           if(

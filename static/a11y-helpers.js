@@ -1,15 +1,15 @@
-/* Wspolne narzedzia dostepnosci (a11y).
+/* Shared accessibility (a11y) utilities.
  *
- * Powstalo przy naprawie ustalen audytu dostepnosci (WCAG 2.2 / EN 301 549).
- * Celowo jeden modul, zeby ten sam wzorzec nie byl kopiowany w kilku miejscach
- * — zdublowany wzorzec byl przyczyna czesci defektow (jedno okno mialo
- * przytrzymanie fokusu, blizniacze nie).
+ * Created while fixing accessibility audit findings (WCAG 2.2 / EN 301 549).
+ * Deliberately a single module, so the same pattern is not copied in several places
+ * — a duplicated pattern caused some defects (one dialog had
+ * focus trapping, its twin did not).
  */
 
-/* Przytrzymanie fokusu w oknie modalnym + odizolowanie tla od czytnikow ekranu.
+/* Focus trapping in a modal dialog + isolating the background from screen readers.
  *
- * Zwraca funkcje sprzatajaca: odpina nasluch, przywraca tlo i oddaje fokus
- * elementowi, ktory mial go przed otwarciem okna (WCAG 2.4.3).
+ * Returns a cleanup function: removes the listener, restores the background, and returns focus
+ * to the element that had it before the dialog opened (WCAG 2.4.3).
  */
 function a11yTrapFocus(modalEl, opts){
   if (!modalEl) return () => {};
@@ -26,7 +26,7 @@ function a11yTrapFocus(modalEl, opts){
     return el.tabIndex >= 0;
   });
 
-  // Tlo poza oknem: inert wyjmuje je z kolejnosci tabulacji I z drzewa dostepnosci.
+  // Background outside the dialog: inert removes it from tab order AND from the accessibility tree.
   const isolated = [];
   if (options.isolateBackground !== false) {
     Array.from(document.body.children).forEach((el) => {
@@ -57,7 +57,7 @@ function a11yTrapFocus(modalEl, opts){
   };
   modalEl.addEventListener('keydown', onKeyDown);
 
-  // Fokus startowy: wskazany element, pierwsze pole, albo pierwsza kontrolka.
+  // Initial focus: the indicated element, the first field, or the first control.
   if (options.autofocus !== false) {
     setTimeout(() => {
       let target = null;
@@ -80,15 +80,15 @@ function a11yTrapFocus(modalEl, opts){
     if (options.restoreFocus !== false && previouslyFocused
         && document.contains(previouslyFocused)
         && typeof previouslyFocused.focus === 'function') {
-      try { previouslyFocused.focus(); } catch (_e) { /* element zniknal */ }
+      try { previouslyFocused.focus(); } catch (_e) { /* element disappeared */ }
     }
   };
 }
 
-/* Stan wybrania w grupie przyciskow, ktora wizualnie oznacza wybor klasa CSS.
+/* Selected state in a button group that visually marks the choice with a CSS class.
  *
- * Naprawia wzorzec "stan tylko klasa CSS" — dla czytnika ekranu klasa nie
- * istnieje, wiec bez aria-pressed uzytkownik nie wie, ktora opcja jest aktywna.
+ * Fixes the "CSS-class-only state" pattern — for a screen reader the class does not
+ * exist, so without aria-pressed the user does not know which option is active.
  */
 function a11ySyncPressedState(container, itemSelector, activeClass){
   if (!container) return;
@@ -99,8 +99,8 @@ function a11ySyncPressedState(container, itemSelector, activeClass){
   });
 }
 
-/* Nazwa dostepna dla pola formularza, ktore ma opis wylacznie obok (w div),
- * albo tylko tekst zastepczy. Nie zmienia wygladu.
+/* Accessible name for a form field that has its description only next to it (in a div),
+ * or only placeholder text. Does not change the appearance.
  */
 function a11yLabel(el, text){
   if (!el || !text) return;
@@ -111,7 +111,7 @@ function a11yLabel(el, text){
   }
 }
 
-/* Jednorazowy komunikat dla czytnika ekranu (obszar aktywny #a11yAnnouncer). */
+/* One-time message for a screen reader (the #a11yAnnouncer live region). */
 function a11yAnnounce(text){
   const region = document.getElementById('a11yAnnouncer');
   if (!region || !text) return;
@@ -119,15 +119,15 @@ function a11yAnnounce(text){
   setTimeout(() => { region.textContent = String(text); }, 50);
 }
 
-/* Element klikalny, ktory NIE jest kontrolka — nadaj mu role i klawiature.
+/* Clickable element that is NOT a control — give it a role and keyboard support.
  *
- * Wzorzec "div/span z onclick" nie mowi czytnikowi ekranu nic: uzytkownik nie
- * wie, ze cokolwiek da sie tu zrobic, i nie dojdzie tam tabulacja (WCAG 4.1.2
- * nazwa/rola/wartosc oraz 2.1.1 dostep z klawiatury).
+ * The "div/span with onclick" pattern tells a screen reader nothing: the user does not
+ * know that anything can be done here, and Tab cannot reach it (WCAG 4.1.2
+ * name/role/value and 2.1.1 keyboard access).
  *
- * Celowo JEDEN helper na caly panel: obsluga Enter/Spacji rozpisana osobno przy
- * kazdym elemencie rozjezdza sie od pierwszej poprawki (czesc dostaje tylko
- * Enter, czesc nic), a to wlasnie rozjazd kopii byl zrodlem defektow.
+ * Deliberately ONE helper for the whole panel: handling Enter/Space separately on
+ * each element diverges after the first fix (some get only
+ * Enter, some get nothing), and that copy drift was exactly the source of the defects.
  */
 function a11yAsButton(el, opts){
   if (!el || typeof el.setAttribute !== 'function') return el;
@@ -145,8 +145,8 @@ function a11yAsButton(el, opts){
   if (el.dataset) el.dataset.a11yKeyActivated = '1';
   el.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
-    // Spacja na elemencie zastepczym przewija strone — to trzeba wstrzymac,
-    // inaczej aktywacja z klawiatury przesuwa widok pod uzytkownikiem.
+    // Space on a surrogate element scrolls the page — this must be prevented,
+    // otherwise keyboard activation shifts the view under the user.
     ev.preventDefault();
     ev.stopPropagation();
     if (typeof options.onActivate === 'function') { options.onActivate(ev); return; }
@@ -155,16 +155,16 @@ function a11yAsButton(el, opts){
   return el;
 }
 
-/* Wiersz, ktory PRZENOSI do innego widoku (rozmowa, dokument) — prawdziwy link.
+/* Row that TAKES the user to another view (conversation, document) — a real link.
  *
- * Rola "link" zamiast "button" jest tu istotna: czytnik ekranu ma osobna
- * nawigacje po linkach (K w NVDA, lista linkow), a uzytkownik slyszy, ze to
- * przejscie, nie akcja na miejscu. Warunek: `href` musi byc adresem, ktory
- * REALNIE otwiera ten widok, inaczej link jest atrapa — otwarcie w nowej karcie
- * i menu kontekstowe przegladarki musza dawac ten sam docelowy ekran.
+ * The "link" role instead of "button" matters here: a screen reader has separate
+ * navigation for links (K in NVDA, links list), and the user hears that this is
+ * navigation, not an in-place action. Condition: `href` must be an address that
+ * REALLY opens that view, otherwise the link is fake — opening in a new tab
+ * and the browser context menu must lead to the same destination screen.
  *
- * Dostajemy przy tym gratis wzorce, ktorych aplikacja nie musi kodowac:
- * Ctrl+klik / srodkowy przycisk (nowa karta) i "kopiuj adres odnosnika".
+ * This also gives us behaviors for free that the app does not need to implement:
+ * Ctrl+click / middle button (new tab) and "copy link address".
  */
 function a11yAsLink(el, href, opts){
   if (!el || typeof el.setAttribute !== 'function') return el;
@@ -178,8 +178,8 @@ function a11yAsLink(el, href, opts){
   if (el.dataset && el.dataset.a11yKeyActivated === '1') return el;
   if (el.dataset) el.dataset.a11yKeyActivated = '1';
   el.addEventListener('keydown', (ev) => {
-    // Link reaguje na Enter; Spacja nalezy do przycisku i tu jej nie przechwytujemy,
-    // zeby zachowanie zgadzalo sie z natywnym <a href>.
+    // A link responds to Enter; Space belongs to a button, so we do not intercept it here,
+    // so the behavior matches native <a href>.
     if (ev.key !== 'Enter') return;
     ev.preventDefault();
     ev.stopPropagation();
@@ -189,49 +189,49 @@ function a11yAsLink(el, href, opts){
   return el;
 }
 
-/* Zestaw zakladek (tablist) — JEDEN mechanizm dla wszystkich pasków zakladek.
+/* Tab set (tablist) — ONE mechanism for all tab bars.
  *
- * Zmierzony defekt (18.08.2026): pasek Settings > Extensions mial role="tablist"
- * i trzy role="tab", ale ZERO aria-selected, ZERO aria-controls i tablist bez
- * nazwy. Czytnik mowil wiec "zakladka Gallery" i NIE MOWIL, ktora jest aktywna —
- * a stan aktywnosci istnial tylko jako klasa CSS (extensions-tab-active), czyli
- * informacja dostepna wylacznie dla osoby widzacej. WCAG 4.1.2.
+ * Measured defect (18.08.2026): the Settings > Extensions bar had role="tablist"
+ * and three role="tab", but ZERO aria-selected, ZERO aria-controls, and the tablist had no
+ * name. The screen reader therefore said "tab Gallery" and DID NOT SAY which one was active —
+ * and the active state existed only as a CSS class (extensions-tab-active), which means
+ * information available only to a sighted person. WCAG 4.1.2.
  *
- * Sasiedni pasek (workspace-panel-tabs) byl zrobiony poprawnie w HTML, wiec to
- * jest rozjazd DWOCH KOPII tego samego wzorca — dokladnie ta klasa bledu, ktora
- * naprawialismy juz przy klikalnych elementach panelu. Zamiast dopisac brakujace
- * atrybuty w trzecim miejscu, wprowadzamy wspolny helper: kazdy pasek dostaje
- * nazwe, kazdy tab aria-selected/aria-controls, panele role="tabpanel", a caly
- * zestaw nawigacje strzalkami z jednym tabem w kolejnosci Tab (roving tabindex).
+ * The neighboring bar (workspace-panel-tabs) was implemented correctly in HTML, so this is
+ * drift between TWO COPIES of the same pattern — exactly the class of bug we
+ * already fixed for clickable panel elements. Instead of adding the missing
+ * attributes in a third place, we introduce a shared helper: every bar gets
+ * a name, every tab gets aria-selected/aria-controls, panels get role="tabpanel", and the whole
+ * set gets arrow-key navigation with one tab in Tab order (roving tabindex).
  *
- * Strzalki sa czescia KONTRAKTU roli tab: skoro mowimy czytnikowi "to zakladki",
- * uzytkownik probuje strzalek i bez nich zostaje w pulapce (ARIA APG: Tabs).
+ * Arrow keys are part of the tab role CONTRACT: if we tell the screen reader "these are tabs",
+ * the user will try arrow keys, and without them gets trapped (ARIA APG: Tabs).
  *
- * Wywolanie jest IDEMPOTENTNE — mozna je powtarzac po kazdym przelaczeniu, bo
- * stan wynika z przekazanego `activeKey`, a nasluch klawiatury zaklada sie raz.
+ * The call is IDEMPOTENT — it can be repeated after every switch, because
+ * the state follows the provided `activeKey`, and the keyboard listener is attached once.
  */
 function a11yTablist(tablist, opts){
   if (!tablist || typeof tablist.querySelectorAll !== 'function') return tablist;
   const options = opts || {};
-  const taby = Array.from(tablist.querySelectorAll('[role="tab"]'));
-  if (!taby.length) return tablist;
+  const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+  if (!tabs.length) return tablist;
   if (options.label) a11yLabel(tablist, options.label);
   if (!tablist.getAttribute('role')) tablist.setAttribute('role', 'tablist');
 
   const kluczTabu = (el) => (typeof options.keyOf === 'function' ? options.keyOf(el) : null);
-  const aktywny = options.activeKey;
+  const active = options.activeKey;
 
-  taby.forEach((tab) => {
-    const klucz = kluczTabu(tab);
-    // Gdy wolajacy nie umie podac klucza, opieramy sie na klasie aktywnosci —
-    // ale NIGDY nie zostawiamy aria-selected niezadeklarowanego.
-    const czyAktywny = (klucz !== null && aktywny !== undefined)
-      ? String(klucz) === String(aktywny)
+  tabs.forEach((tab) => {
+    const key = kluczTabu(tab);
+    // When the caller cannot provide a key, we rely on the active-state class —
+    // but we NEVER leave aria-selected undeclared.
+    const czyAktywny = (key !== null && active !== undefined)
+      ? String(key) === String(active)
       : (typeof options.isActive === 'function' ? !!options.isActive(tab) : false);
     tab.setAttribute('aria-selected', czyAktywny ? 'true' : 'false');
-    // Roving tabindex: tylko aktywny tab jest w kolejnosci Tab, po zestawie
-    // chodzi sie strzalkami. Bez tego uzytkownik klawiatury musi przejsc przez
-    // KAZDA zakladke, zeby wyjsc z paska.
+    // Roving tabindex: only the active tab is in Tab order, and the set is
+    // navigated with arrow keys. Without this, a keyboard user has to pass through
+    // EVERY tab to leave the bar.
     tab.setAttribute('tabindex', czyAktywny ? '0' : '-1');
     const panel = (typeof options.panelFor === 'function') ? options.panelFor(tab) : null;
     if (panel) {
@@ -239,13 +239,13 @@ function a11yTablist(tablist, opts){
       tab.setAttribute('aria-controls', panel.id);
       if (!panel.getAttribute('role')) panel.setAttribute('role', 'tabpanel');
       if (!tab.id) tab.id = `a11yTab_${Math.random().toString(36).slice(2, 9)}`;
-      // Panel bierze nazwe od AKTYWNEJ zakladki. Ma to znaczenie, gdy kilka
-      // zakladek przelacza zawartosc JEDNEGO kontenera (tak dziala pasek
-      // Full/Output w kartach narzedzi: tryb "output" tylko ukrywa argumenty
-      // w tym samym elemencie). Gdybysmy zostawili nazwe pierwszej zakladki,
-      // czytnik po przejsciu na "Output" nadal mowilby "Full" — czyli panel
-      // klamalby o tym, co pokazuje. Przy osobnych panelach zachowanie jest
-      // takie jak dotad: kazdy panel nazywa sie swoja zakladka.
+      // The panel takes its name from the ACTIVE tab. This matters when several
+      // tabs switch the contents of ONE container (that is how the
+      // Full/Output bar in tool cards works: the "output" mode only hides the arguments
+      // inside the same element). If we left the first tab's name there,
+      // after moving to "Output" the screen reader would still say "Full" — so the panel
+      // would lie about what it shows. With separate panels the behavior is
+      // the same as before: each panel is named after its own tab.
       if (czyAktywny || !panel.hasAttribute('aria-labelledby')) {
         panel.setAttribute('aria-labelledby', tab.id);
       }
@@ -255,68 +255,68 @@ function a11yTablist(tablist, opts){
   if (tablist.dataset && tablist.dataset.a11yTablistKeys === '1') return tablist;
   if (tablist.dataset) tablist.dataset.a11yTablistKeys = '1';
   tablist.addEventListener('keydown', (ev) => {
-    const kolejnosc = Array.from(tablist.querySelectorAll('[role="tab"]'));
-    const teraz = kolejnosc.indexOf(document.activeElement);
-    if (teraz < 0) return;
-    let cel = null;
-    if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') cel = (teraz + 1) % kolejnosc.length;
-    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') cel = (teraz - 1 + kolejnosc.length) % kolejnosc.length;
-    else if (ev.key === 'Home') cel = 0;
-    else if (ev.key === 'End') cel = kolejnosc.length - 1;
+    const order = Array.from(tablist.querySelectorAll('[role="tab"]'));
+    const current = order.indexOf(document.activeElement);
+    if (current < 0) return;
+    let nextIndex = null;
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') nextIndex = (current + 1) % order.length;
+    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') nextIndex = (current - 1 + order.length) % order.length;
+    else if (ev.key === 'Home') nextIndex = 0;
+    else if (ev.key === 'End') nextIndex = order.length - 1;
     else return;
     ev.preventDefault();
     ev.stopPropagation();
-    const docelowy = kolejnosc[cel];
-    if (!docelowy) return;
-    // Wzorzec "automatic activation": przejscie strzalka OD RAZU przelacza panel,
-    // bo tak dziala reszta zakladek w tej aplikacji (klik = przelaczenie).
-    docelowy.setAttribute('tabindex', '0');
-    if (typeof docelowy.focus === 'function') docelowy.focus();
-    if (typeof docelowy.click === 'function') docelowy.click();
+    const target = order[nextIndex];
+    if (!target) return;
+    // The "automatic activation" pattern: moving with an arrow key switches the panel IMMEDIATELY,
+    // because that is how the rest of the tabs in this app work (click = switch).
+    target.setAttribute('tabindex', '0');
+    if (typeof target.focus === 'function') target.focus();
+    if (typeof target.click === 'function') target.click();
   });
   return tablist;
 }
 
-/* DRZEWO (pliki katalogu roboczego) - kontrakt role=tree.
+/* TREE (working-directory files) - role=tree contract.
  *
- * Zgloszenie Michala (18.08.2026): w zakladce Files czytnik mowil
+ * Michal's report (18.08.2026): in the Files tab the screen reader said
  *   "▸  .cache  ×   ▸  .cloak-venv  ×"
- * czyli znak strzalki, nazwa, znak mnozenia. Jego slowa: "i badz tu madry co to
- * jest, o co chodzi i jak z tym sie obchodzic".
+ * that is, arrow character, name, multiplication sign. In his words: "and try to figure out what this
+ * is, what it means, and how to use it".
  *
- * Zmierzone braki (wszystkie 7 naraz): wiersz to <div> bez role i bez tabindex
- * (dla czytnika NIE JEST kontrolka i nie da sie go dosiegnac klawiatura),
- * strzalka to <span> z samym znakiem (brak aria-expanded), przycisk usuwania ma
- * widoczny tekst "×" i tylko title (czytniki czesto title pomijaja), kontener
- * nie ma role=tree, brak aria-level, wiec nie wiadomo, na ktorym poziomie
- * zagniezdzenia jest wiersz.
+ * Measured missing pieces (all 7 at once): the row is a <div> without a role and without tabindex
+ * (for the screen reader it is NOT a control and the keyboard cannot reach it),
+ * the arrow is a <span> with only a character (no aria-expanded), the delete button has
+ * visible text "×" and only a title (screen readers often skip title), the container
+ * has no role=tree, there is no aria-level, so it is impossible to know on which nesting
+ * level the row is.
  *
- * Dlaczego role=tree, a nie lista przyciskow: katalogi sie ZWIJAJA i wiersze sa
- * ZAGNIEZDZONE. Rola tree jest jedyna, ktora ma slownictwo na oba te fakty
- * (aria-expanded + aria-level), a czytniki maja do niej gotowa nawigacje.
+ * Why role=tree instead of a list of buttons: directories COLLAPSE and rows are
+ * NESTED. The tree role is the only one that has vocabulary for both of these facts
+ * (aria-expanded + aria-level), and screen readers have built-in navigation for it.
  *
- * Wzorzec fokusu: JEDEN tabindex=0 na cale drzewo (roving), strzalki wedruja
- * miedzy wierszami. Inaczej drzewo z setka plikow wymagaloby setki nacisniec
- * Tab, zeby je przeskoczyc.
+ * Focus pattern: ONE tabindex=0 across the whole tree (roving), arrow keys move
+ * between rows. Otherwise a tree with a hundred files would require hundreds of
+ * Tab presses to get past it.
  */
 function a11yTreeRow(row, opts){
   const o = opts || {};
   if (!row || typeof row.setAttribute !== 'function') return row;
   row.setAttribute('role', 'treeitem');
   if (Number(o.level) > 0) row.setAttribute('aria-level', String(Math.floor(o.level)));
-  // Katalog: mowimy, czy jest rozwiniety. Plik: NIE ustawiamy aria-expanded -
-  // dla liscia ten atrybut jest nieprawdziwy (sugeruje, ze cos da sie rozwinac).
+  // Directory: we say whether it is expanded. File: we DO NOT set aria-expanded -
+  // for a leaf this attribute is false (it suggests that something can be expanded).
   if (o.expandable) row.setAttribute('aria-expanded', o.expanded ? 'true' : 'false');
   else row.removeAttribute('aria-expanded');
-  // Nazwa dostepna: sama nazwa pliku plus rodzaj, zeby "folder" bylo slyszalne
-  // takze wtedy, gdy ikona jest dla czytnika niewidoczna.
+  // Accessible name: the file name itself plus its type, so that "folder" is audible
+  // even when the icon is invisible to the screen reader.
   if (o.label) a11yLabel(row, o.label);
   row.setAttribute('tabindex', o.focusable ? '0' : '-1');
   return row;
 }
 
-/* Kontener drzewa: rola, nazwa i nawigacja strzalkami/Home/End.
- * Idempotentny - wolaj po kazdym przerysowaniu. */
+/* Tree container: role, name, and Arrow/Home/End navigation.
+ * Idempotent - call after every re-render. */
 function a11yTree(container, opts){
   const o = opts || {};
   if (!container || typeof container.querySelectorAll !== 'function') return container;
@@ -326,57 +326,57 @@ function a11yTree(container, opts){
   if (container.dataset) container.dataset.a11yTreeBound = '1';
   if (typeof container.addEventListener !== 'function') return container;
 
-  const wiersze = () => Array.from(container.querySelectorAll('[role="treeitem"]'));
-  const przeniesFokus = (docelowy) => {
-    if (!docelowy) return;
-    for (const w of wiersze()) w.setAttribute('tabindex', w === docelowy ? '0' : '-1');
-    if (typeof docelowy.focus === 'function') docelowy.focus();
+  const rows = () => Array.from(container.querySelectorAll('[role="treeitem"]'));
+  const moveFocus = (target) => {
+    if (!target) return;
+    for (const w of rows()) w.setAttribute('tabindex', w === target ? '0' : '-1');
+    if (typeof target.focus === 'function') target.focus();
   };
 
   container.addEventListener('keydown', (ev) => {
-    const klawisz = ev && ev.key;
-    if (!klawisz) return;
-    const lista = wiersze();
-    if (!lista.length) return;
-    const aktywny = (typeof document !== 'undefined' && document.activeElement) || null;
-    let i = lista.indexOf(aktywny);
-    if (i < 0) i = lista.findIndex((w) => w.getAttribute('tabindex') === '0');
+    const key = ev && ev.key;
+    if (!key) return;
+    const items = rows();
+    if (!items.length) return;
+    const active = (typeof document !== 'undefined' && document.activeElement) || null;
+    let i = items.indexOf(active);
+    if (i < 0) i = items.findIndex((w) => w.getAttribute('tabindex') === '0');
 
-    if (klawisz === 'ArrowDown' || klawisz === 'ArrowUp') {
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
       ev.preventDefault();
-      const krok = klawisz === 'ArrowDown' ? 1 : -1;
-      const next = i < 0 ? 0 : (i + krok + lista.length) % lista.length;
-      przeniesFokus(lista[next]);
+      const krok = key === 'ArrowDown' ? 1 : -1;
+      const next = i < 0 ? 0 : (i + krok + items.length) % items.length;
+      moveFocus(items[next]);
       return;
     }
-    if (klawisz === 'Home' || klawisz === 'End') {
+    if (key === 'Home' || key === 'End') {
       ev.preventDefault();
-      przeniesFokus(klawisz === 'Home' ? lista[0] : lista[lista.length - 1]);
+      moveFocus(key === 'Home' ? items[0] : items[items.length - 1]);
       return;
     }
     if (i < 0) return;
-    const biezacy = lista[i];
+    const biezacy = items[i];
     const rozwijalny = biezacy.hasAttribute('aria-expanded');
     const rozwiniety = biezacy.getAttribute('aria-expanded') === 'true';
 
-    // Strzalka w prawo: rozwin katalog. Gdy juz rozwiniety - wejdz do srodka.
-    if (klawisz === 'ArrowRight') {
+    // Right arrow: expand the directory. If already expanded - move inside.
+    if (key === 'ArrowRight') {
       ev.preventDefault();
       if (rozwijalny && !rozwiniety) { if (typeof biezacy.click === 'function') biezacy.click(); }
-      else if (lista[i + 1]) przeniesFokus(lista[i + 1]);
+      else if (items[i + 1]) moveFocus(items[i + 1]);
       return;
     }
-    // Strzalka w lewo: zwin. Gdy zwiniety/plik - wyjdz do rodzica (wyzszy poziom).
-    if (klawisz === 'ArrowLeft') {
+    // Left arrow: collapse. If collapsed/file - go to the parent (higher level).
+    if (key === 'ArrowLeft') {
       ev.preventDefault();
       if (rozwijalny && rozwiniety) { if (typeof biezacy.click === 'function') biezacy.click(); return; }
-      const poziom = Number(biezacy.getAttribute('aria-level') || 0);
+      const level = Number(biezacy.getAttribute('aria-level') || 0);
       for (let j = i - 1; j >= 0; j--) {
-        if (Number(lista[j].getAttribute('aria-level') || 0) < poziom) { przeniesFokus(lista[j]); return; }
+        if (Number(items[j].getAttribute('aria-level') || 0) < level) { moveFocus(items[j]); return; }
       }
       return;
     }
-    if (klawisz === 'Enter' || klawisz === ' ') {
+    if (key === 'Enter' || key === ' ') {
       ev.preventDefault();
       if (typeof biezacy.click === 'function') biezacy.click();
     }
@@ -384,58 +384,58 @@ function a11yTree(container, opts){
   return container;
 }
 
-/* Lista wyboru sterowana strzalkami (combobox + listbox).
+/* Arrow-key-driven selection list (combobox + listbox).
  *
- * Zmierzony defekt (18.08.2026): podpowiedzi komend /slash i podpowiedzi
- * katalogow roboczych maja pelna nawigacje strzalkami, ale wybrana pozycja jest
- * oznaczona WYLACZNIE klasa CSS. Czytnik ekranu nie oglasza wiec niczego przy
- * przechodzeniu po liscie — uzytkownik slyszy cisze i nie wie, co zatwierdzi
- * Enterem. WCAG 4.1.2.
+ * Measured defect (18.08.2026): /slash command suggestions and
+ * working-directory suggestions have full arrow-key navigation, but the selected item is
+ * marked ONLY with a CSS class. The screen reader therefore announces nothing while
+ * moving through the list — the user hears silence and does not know what Enter will
+ * confirm. WCAG 4.1.2.
  *
- * To kolejny wariant tej samej klasy bledu (po zakladkach i plakietkach zrodel),
- * a repo ma juz jego poprawne rozwiazanie dla listy modeli (ui.js, _highlightRow:
- * role="option" + aria-selected + aria-activedescendant na polu). Zamiast
- * czwartej kopii tamtej logiki, wystawiamy ja jako wspolny helper.
+ * This is another variant of the same bug class (after tabs and source badges),
+ * and the repo already has its correct solution for the models list (ui.js, _highlightRow:
+ * role="option" + aria-selected + aria-activedescendant on the field). Instead of
+ * a fourth copy of that logic, we expose it as a shared helper.
  *
- * Kontrakt jest calosciowy — sama aria-selected nie wystarczy, bo bez
- * role="listbox"/"option" czytnik nie traktuje tego jak listy wyboru, a bez
- * aria-activedescendant nie oglosi ruchu, skoro fokus zostaje w polu tekstowym.
+ * The contract is complete — aria-selected alone is not enough, because without
+ * role="listbox"/"option" the screen reader does not treat it as a selection list, and without
+ * aria-activedescendant it will not announce movement, since focus stays in the text field.
  *
- * Idempotentny: wolaj po kazdej zmianie wyboru.
+ * Idempotent: call after every selection change.
  */
-function a11yActiveDescendantList(pole, lista, elementy, wybranyIndeks, opts){
-  if (!lista || !elementy || !elementy.length) {
-    // Lista zwinieta: pole nie moze wskazywac na nieistniejacy element.
-    if (pole && typeof pole.removeAttribute === 'function') {
-      pole.removeAttribute('aria-activedescendant');
-      pole.setAttribute('aria-expanded', 'false');
+function a11yActiveDescendantList(field, items, elements, selectedIndex, opts){
+  if (!items || !elements || !elements.length) {
+    // Collapsed list: the field cannot point to a non-existent element.
+    if (field && typeof field.removeAttribute === 'function') {
+      field.removeAttribute('aria-activedescendant');
+      field.setAttribute('aria-expanded', 'false');
     }
     return;
   }
   const options = opts || {};
   const prefiks = options.idPrefix || 'a11yOpt';
-  if (!lista.getAttribute('role')) lista.setAttribute('role', 'listbox');
-  if (options.label) a11yLabel(lista, options.label);
+  if (!items.getAttribute('role')) items.setAttribute('role', 'listbox');
+  if (options.label) a11yLabel(items, options.label);
 
-  let wybrany = null;
-  for (let i = 0; i < elementy.length; i++) {
-    const el = elementy[i];
+  let selected = null;
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
     if (!el || typeof el.setAttribute !== 'function') continue;
     if (!el.getAttribute('role')) el.setAttribute('role', 'option');
     if (!el.id) el.id = `${prefiks}_${i}_${Math.random().toString(36).slice(2, 7)}`;
-    const czyWybrany = i === wybranyIndeks;
-    el.setAttribute('aria-selected', czyWybrany ? 'true' : 'false');
-    if (czyWybrany) wybrany = el;
+    const isSelected = i === selectedIndex;
+    el.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+    if (isSelected) selected = el;
   }
 
-  if (!pole || typeof pole.setAttribute !== 'function') return;
-  if (!pole.getAttribute('role')) pole.setAttribute('role', 'combobox');
-  pole.setAttribute('aria-expanded', 'true');
-  pole.setAttribute('aria-autocomplete', 'list');
-  if (!lista.id) lista.id = `${prefiks}_lista_${Math.random().toString(36).slice(2, 7)}`;
-  pole.setAttribute('aria-controls', lista.id);
-  if (wybrany) pole.setAttribute('aria-activedescendant', wybrany.id);
-  else pole.removeAttribute('aria-activedescendant');
+  if (!field || typeof field.setAttribute !== 'function') return;
+  if (!field.getAttribute('role')) field.setAttribute('role', 'combobox');
+  field.setAttribute('aria-expanded', 'true');
+  field.setAttribute('aria-autocomplete', 'list');
+  if (!items.id) items.id = `${prefiks}_lista_${Math.random().toString(36).slice(2, 7)}`;
+  field.setAttribute('aria-controls', items.id);
+  if (selected) field.setAttribute('aria-activedescendant', selected.id);
+  else field.removeAttribute('aria-activedescendant');
 }
 
 if (typeof window !== 'undefined') {
@@ -451,43 +451,43 @@ if (typeof window !== 'undefined') {
   window.a11yActiveDescendantList = a11yActiveDescendantList;
 }
 
-/* ── Nawigacja po naglowkach w zapisie rozmowy ────────────────────────────
+/* ── Heading navigation in the conversation transcript ────────────────────────────
  *
- * Problem: w dlugiej rozmowie nie da sie szybko przeskakiwac miedzy kolejnymi
- * wypowiedziami. Czytnik ekranu ma do tego gotowe narzedzie — skok po
- * naglowkach (H w NVDA, 2/3 po poziomach) — ale zapis rozmowy nie mial ani
- * jednego naglowka.
+ * Problem: in a long conversation, it is not possible to jump quickly between
+ * messages. A screen reader already has a built-in tool for this — jump by
+ * headings (H in NVDA, 2/3 by level) — but the transcript did not have even a
+ * single heading.
  *
- * Rozwiazanie: KAZDA wypowiedz dostaje <h2>, a elementy wewnatrz tury
- * asystenta (rozumowanie, dziennik narzedzi) <h3>. Naglowki sa niewidoczne
- * wizualnie (klasa sr-only) — uklad graficzny nie zmienia sie ani o piksel,
- * bo role sa juz pokazane ikona i podpisem.
+ * Solution: EVERY message gets an <h2>, and elements inside an assistant
+ * turn (reasoning, tool log) get <h3>. The headings are visually hidden
+ * (sr-only class) — the visual layout does not change by a single pixel,
+ * because roles are already shown by the icon and label.
  *
- * Dlaczego przez MutationObserver, a nie w funkcjach renderujacych:
- * wiadomosci powstaja kilkoma sciezkami (render ustalony, strumien na zywo,
- * odzysk wierszy z puli, przywracanie tury po przelaczeniu sesji). Dekorowanie
- * w jednym miejscu po fakcie obejmuje wszystkie te sciezki i nie moze sie
- * z zadna rozjechac. To tez powod, dla ktorego nie ruszamy
- * _setLatestAssistantTurnLandmark — jego kontrakt pilnuje test w repozytorium
- * (tests/test_a11y_transcript_landmarks.py): tura nie moze zawierac naglowka
- * dodanego TAM ani byc fokusowalna.
+ * Why use MutationObserver instead of the rendering functions:
+ * messages are created through several paths (steady render, live stream,
+ * row reuse from the pool, restoring a turn after switching sessions). Decorating
+ * in one place after the fact covers all those paths and cannot diverge
+ * from any of them. That is also why we do not touch
+ * _setLatestAssistantTurnLandmark — its contract is guarded by a repository test
+ * (tests/test_a11y_transcript_landmarks.py): the turn must not contain a heading
+ * added THERE or be focusable.
  */
 
 const A11Y_HEAD_MARK = 'a11yHeading';       // dataset marker on our headings
 const A11Y_HEAD_DONE = 'a11yHeadingFor';    // signature of what we labelled
 
-/* Elementy, ktore NIE naleza do wypowiedzi i nie moga trafic do wycinka:
- * podpis roli (ikona + nazwa), licznik czasu, przyciski akcji, nasze wlasne
- * naglowki oraz caly dziennik aktywnosci. Bez tego naglowek tury na zywo
- * brzmial "HHermes Processed 1sProcessed 2s" — czyli litera z ikony, nazwa
- * i liczniki sekund, zamiast pierwszych slow odpowiedzi (zmierzone). */
+/* Elements that do NOT belong to the message and must not enter the snippet:
+ * role label (icon + name), time counter, action buttons, our own
+ * headings, and the whole activity log. Without this, the live-turn heading
+ * sounded like "HHermes Processed 1sProcessed 2s" — that is, the icon letter, the name,
+ * and second counters, instead of the first words of the response (measured). */
 const A11Y_SNIPPET_SKIP = [
-  // Podpis roli i jego czesci skladowe. `.role-icon` i `.msg-role-name` sa
-  // wymienione OSOBNO, mimo ze normalnie leza w `.msg-role`: ikona roli to
-  // pierwsza LITERA nazwy asystenta ("H"), wiec gdy trafi do wycinka poza
-  // kontenerem `.msg-role`, naglowek czyta sie "HHermes" — dokladnie taki objaw
-  // zglosil uzytkownik. Filtrowanie samego rodzica bylo zalozeniem o strukturze;
-  // wymienienie dzieci jest odporne na kazdy uklad znacznikow.
+  // Role label and its parts. `.role-icon` and `.msg-role-name` are
+  // listed SEPARATELY even though they normally sit inside `.msg-role`: the role icon is
+  // the first LETTER of the assistant name ("H"), so if it enters the snippet outside
+  // the `.msg-role` container, the heading reads "HHermes" — exactly that symptom
+  // was reported by the user. Filtering only the parent assumed a structure;
+  // listing the children is robust to any markup layout.
   '.msg-role', '.role-icon', '.msg-role-name',
   '.msg-tps-inline', '.msg-foot', '.msg-actions',
   '.agent-activity-group', '.tool-call-group', '.tool-worklog',
@@ -527,87 +527,87 @@ function _a11yRoleLabel(row){
  * The number and the opening words are what make the heading list usable —
  * a list of twenty identical "Hermes" entries would navigate no better than
  * no headings at all. */
-/* Czy ta tura wlasnie powstaje.
+/* Is this turn being created right now.
  *
- * Pulapka zmierzona: pierwsza wersja pytala o `.thinking-card:not(.done)`, a
- * karty rozumowania w turach ZAKONCZONYCH tez nie maja klasy `done` (5 z 5
- * w zamknietej turze). Kazda tura wygladala wiec na trwajaca. Wiarygodne
- * znaczniki to identyfikator tury na zywo, jawny data-live i kursor strumienia —
- * wszystkie sa wlasnoscia TEJ tury. Globalny stan biegu byl tu kiedys dodatkowa
- * poszlaka dla ostatniej tury i okazal sie szkodliwy (patrz cialo funkcji).
+ * Measured pitfall: the first version checked `.thinking-card:not(.done)`, and
+ * reasoning cards in FINISHED turns also do not have the `done` class (5 out of 5
+ * in a closed turn). Every turn therefore looked live. Reliable
+ * markers are the live-turn identifier, explicit data-live, and the stream cursor —
+ * all of them belong to THIS turn. The global run state used to be an extra
+ * clue for the last turn and turned out harmful (see the function body).
  */
 function _a11yTurnIsLive(row){
   const liveTurn = document.getElementById('liveAssistantTurn');
   if (liveTurn && (liveTurn === row || row.contains(liveTurn) || liveTurn.contains(row))) return true;
   if (row.dataset && row.dataset.live === 'true') return true;
   if (row.querySelector('.stream-cursor, .typing-indicator, .msg-streaming')) return true;
-  // CELOWO NIE pytamy tu o globalny stan biegu (a11yRunIsActive) jako o dowod,
-  // ze ostatnia tura jest zywa. Byla to poszlaka, ktora zamieniala JEDEN
-  // pominiety sygnal konca w trwale zawieszenie widoku: uzytkownik zglosil
-  // "model skonczy pisac, a widze 5. Hermes, working ... a po odswiezeniu mam
-  // wypowiedz". Gdy stan biegu nie zostal zdjety, kazde kolejne przejscie
-  // dekoratora uznawalo zamknieta ture za trwajaca, wiec naglowek czytal
-  // "working", a _a11yReorderTurn nie przestawial blokow i tresc odpowiedzi
-  // zostawala ZA dziennikiem aktywnosci.
-  // Znaczniki powyzej sa wlasnoscia TEJ tury i znikaja razem z nia, wiec nie
-  // moga sie rozjechac ze stanem globalnym. Jesli zaden z nich nie wystepuje,
-  // tura jest zakonczona — nawet gdy licznik biegu zostal gdzies otwarty.
+  // We DELIBERATELY do NOT check the global run state (a11yRunIsActive) here as proof
+  // that the last turn is live. It was a clue that turned ONE
+  // missed end signal into a permanently stuck view: the user reported
+  // "the model stops writing, but I see 5. Hermes, working ... and after refresh I get the
+  // message". When the run state was not cleared, every later pass of the
+  // decorator treated the finished turn as live, so the heading read
+  // "working", and _a11yReorderTurn did not reorder the blocks, so the response content
+  // stayed AFTER the activity log.
+  // The markers above belong to THIS turn and disappear with it, so they cannot
+  // drift away from the global state. If none of them is present,
+  // the turn is finished — even if the run counter was left open somewhere.
   //
-  // WYJATEK, ktory NIE cierpi na ten sam problem: sesja prowadzona z zewnatrz
-  // (TUI/Telegram). Nie ma wtedy w dokumencie zadnej tury na zywo — praca dzieje
-  // sie w innym procesie — a uzytkownik ma prawo wiedziec, ze cos trwa
-  // (zgloszenie: "sesja zyje, ja nie mam informacji, ze zyje"). Roznica wobec
-  // usunietej poszlaki jest zasadnicza: `_a11yForeignOwnsRun` NIE zalezy od
-  // sygnalu, ktory mozna przeoczyc — watchdog sam go gasi, gdy zmierzy brak
-  // przyrostu (A11Y_FOREIGN_DONE_AFTER_MS). Stan nie moze wiec zawisnac.
-  // Straz na `typeof`: `_a11yForeignOwnsRun` jest deklarowane przez `let` DALEJ
-  // w tym pliku (strefa martwa czasowa). W praktyce ta funkcja rusza dopiero po
-  // wczytaniu calego skryptu, ale gole odwolanie rzucaloby ReferenceError, gdyby
-  // dekorator zostal kiedys wywolany wczesniej — a wtedy padlby caly render.
+  // EXCEPTION that does NOT suffer from the same problem: a session driven from outside
+  // (TUI/Telegram). There is then no live turn in the document — the work happens
+  // in another process — and the user has the right to know that something is in progress
+  // (report: "the session is alive, I have no information that it is alive"). The difference from the
+  // removed clue is fundamental: `_a11yForeignOwnsRun` does NOT depend on
+  // a signal that can be missed — the watchdog clears it itself when it measures no
+  // growth (A11Y_FOREIGN_DONE_AFTER_MS). The state therefore cannot get stuck.
+  // Guard with `typeof`: `_a11yForeignOwnsRun` is declared with `let` LATER
+  // in this file (temporal dead zone). In practice this function only runs after
+  // the whole script is loaded, but a bare reference would throw ReferenceError if
+  // the decorator were ever called earlier — and then the whole render would fail.
   if (typeof _a11yForeignOwnsRun !== 'undefined' && _a11yForeignOwnsRun && !liveTurn) {
-    const wszystkie = document.querySelectorAll('#messages .msg-row.assistant-turn');
-    if (wszystkie.length && wszystkie[wszystkie.length - 1] === row) return true;
+    const allRows = document.querySelectorAll('#messages .msg-row.assistant-turn');
+    if (allRows.length && allRows[allRows.length - 1] === row) return true;
   }
   return false;
 }
 
-/* Tekst naglowka tury.
+/* Turn heading text.
  *
- * Rozne zasady dla obu stron rozmowy, i to jest celowe:
+ * Different rules for both sides of the conversation, and this is deliberate:
  *
- * - WYPOWIEDZ UZYTKOWNIKA dostaje fragment tresci. Sluzy do orientacji
- *   "gdzie o co pytalem", a polecenia sa krotkie, wiec skrot nie przeszkadza.
+ * - The USER MESSAGE gets a content snippet. It serves as orientation
+ *   "where did I ask about what", and prompts are short, so the snippet does not hurt.
  *
- * - ODPOWIEDZ ASYSTENTA dostaje tylko role i godzine. Skracanie dlugiej
- *   odpowiedzi do 70 znakow bylo irytujace: uzytkownik slyszal poszatkowany
- *   poczatek zdania, a potem to samo zdanie jeszcze raz w tresci. Naglowek ma
- *   byc punktem zaczepienia do skoku, nie streszczeniem. Tresc czyta sie
- *   ZARAZ POD naglowkiem (patrz _a11yReorderTurn).
+ * - The ASSISTANT RESPONSE gets only the role and time. Truncating a long
+ *   response to 70 characters was irritating: the user heard a chopped-up
+ *   start of the sentence, and then the same sentence again in the content. The heading is meant to
+ *   be an anchor point for navigation, not a summary. The content is read
+ *   IMMEDIATELY BELOW the heading (see _a11yReorderTurn).
  */
 function _a11yTurnHeadingText(row, ordinal, total){
   const label = _a11yRoleLabel(row);
   const isAssistant = (row.dataset && row.dataset.role === 'assistant')
     || row.classList.contains('assistant-turn');
 
-  // "N z M" tylko dla PIERWSZEJ wypowiedzi w oknie, nie dla kazdej.
+  // "N of M" only for the FIRST message in the window, not for every one.
   //
-  // Numer globalny sam mowi, ze rozmowa jest dluga (43. zamiast 1.), ale nie
-  // mowi, ILE jest przed nami. Doklejanie "z 576" do KAZDEGO naglowka byloby
-  // jednak gadatliwe: przy skakaniu po naglowkach czytnik powtarzalby te sama
-  // liczbe kilkadziesiat razy. Uzytkownik potrzebuje jej RAZ, na wejsciu w okno
-  // — dalej wystarcza rosnacy numer.
+  // The global number already says the conversation is long (43 instead of 1), but it does not
+  // say HOW MANY are ahead. Appending "of 576" to EVERY heading would be
+  // too verbose: when jumping by headings, the screen reader would repeat the same
+  // number dozens of times. The user needs it ONCE, when entering the window
+  // — after that, the increasing number is enough.
   const numer = (Number(total) > 0 && Number(ordinal) === _a11yTurnOffset + 1)
     ? `${ordinal}/${total}`
     : `${ordinal}`;
 
   if (isAssistant) {
-    // Godzina z atrybutu title podpisu roli ("17.08.2026, 11:15:25").
+    // Time from the role-label title attribute ("17.08.2026, 11:15:25").
     const roleEl = row.querySelector('.msg-role');
     const stamp = roleEl ? (roleEl.getAttribute('title') || '') : '';
     const hhmm = (stamp.match(/(\d{1,2}:\d{2})/) || [])[1] || '';
-    // Tura W TOKU mowi wprost, ze trwa. Bez tego po skoku na naglowek nie bylo
-    // zadnej roznicy miedzy odpowiedzia gotowa a wciaz powstajaca — a to byla
-    // dokladnie skarga uzytkownika ("nie wiem, czy sie zacial").
+    // A LIVE turn explicitly says that it is in progress. Without this, after jumping to the heading there was
+    // no difference between a finished response and one still being created — and that was
+    // exactly the user's complaint ("I don't know whether it got stuck").
     const live = _a11yTurnIsLive(row);
     if (live) {
       const working = (typeof t === 'function' && t('a11y_turn_working')) || 'working';
@@ -620,39 +620,39 @@ function _a11yTurnHeadingText(row, ordinal, total){
   return `${numer}. ${label}${snippet ? ': ' + snippet : ''}`;
 }
 
-/* Kolejnosc w turze asystenta: ODPOWIEDZ NAJPIERW, dziennik i przyciski potem.
+/* Order inside an assistant turn: RESPONSE FIRST, log and buttons afterward.
  *
- * Problem zmierzony w sesji na 1152 wiadomosci: w kodzie strony dziennik
- * aktywnosci ("Processed") lezy PRZED trescia odpowiedzi (indeksy 5 vs 346).
- * Skok na naglowek wypowiedzi ladowal wiec na dzienniku, a nie na odpowiedzi —
- * do tresci trzeba bylo dopiero dojechac.
+ * Problem measured in a session with 1152 messages: in the page code the activity
+ * log ("Processed") sits BEFORE the response content (indexes 5 vs 346).
+ * Jumping to the message heading therefore landed on the log, not on the response —
+ * the content had to be reached only afterwards.
  *
- * Rozwiazanie: .assistant-turn-blocks jest flexem w kolumnie (zmierzone:
- * display:flex, flex-direction:column), a flexbox pozwala zmienic kolejnosc
- * atrybutem order — i, co tu najwazniejsze, DLA CZYTNIKA EKRANU TEZ, bo
- * przegladarki ustawiaja kolejnosc w drzewie dostepnosci zgodnie z ukladem
- * flex. Nie przenosimy wiec wezlow w DOM (co zerwaloby recykling wierszy,
- * pomiary wysokosci i zakotwiczenia przewijania), tylko nadajemy order.
+ * Solution: .assistant-turn-blocks is a column flex container (measured:
+ * display:flex, flex-direction:column), and flexbox allows changing the order
+ * with the order property — and, most importantly here, FOR THE SCREEN READER TOO, because
+ * browsers set the order in the accessibility tree according to the flex
+ * layout. So we do not move nodes in the DOM (which would break row recycling,
+ * height measurements, and scroll anchoring), we only assign order.
  *
- * WYJATEK: tura NA ZYWO zostaje bez zmian. Dziennik jest wtedy jedyna
- * informacja o postepie i musi byc na gorze; przestawianie go w trakcie
- * odpowiedzi przeskakiwaloby uklad pod palcami uzytkownika.
+ * EXCEPTION: a LIVE turn stays unchanged. The log is then the only
+ * progress information and must remain at the top; moving it during the
+ * response would shift the layout under the user's fingers.
  */
 function _a11yReorderTurn(row){
   if (!row.classList.contains('assistant-turn')) return;
   const blocks = row.querySelector('.assistant-turn-blocks');
   if (!blocks) return;
 
-  // Tura w toku: nie ruszamy jej kolejnosci. Dziennik jest wtedy jedyna
-  // informacja o postepie i musi zostac na gorze; przestawianie w trakcie
-  // przeskakiwaloby uklad pod palcami uzytkownika.
+  // Live turn: we do not touch its order. The log is then the only
+  // progress information and must stay at the top; moving it during the
+  // would shift the layout under the user's fingers.
   const live = _a11yTurnIsLive(row);
 
   const kids = Array.from(blocks.children);
   const hasProse = kids.some(el => el.classList.contains('assistant-segment')
     && el.getClientRects().length > 0);
   if (live || !hasProse) {
-    // wycofaj ewentualne wczesniejsze przestawienie
+    // revert any earlier reordering
     for (const el of kids) {
       if (el.dataset && el.dataset.a11yOrdered) {
         el.style.order = '';
@@ -668,12 +668,12 @@ function _a11yReorderTurn(row){
       || el.classList.contains('tool-worklog')
       || el.classList.contains('thinking-card');
     if (!isLog) continue;
-    // ZMIERZONE: sam CSS `order` NIE wystarcza. Po ustawieniu order=2/1 uklad
-    // wizualny zmienil sie poprawnie (tresc nad dziennikiem), ale w drzewie
-    // dostepnosci dziennik NADAL byl przed trescia (pozycje 1731 vs 1734) —
-    // a czytnik ekranu czyta wlasnie to drzewo, nie uklad wizualny.
-    // Dlatego przenosimy wezel na koniec kontenera. Robimy to tylko dla tur
-    // ZAKONCZONYCH, wiec nie kolidujemy ze strumieniowaniem.
+    // MEASURED: CSS `order` alone is NOT enough. After setting order=2/1, the visual layout
+    // changed correctly (content above the log), but in the accessibility tree
+    // the log was STILL before the content (positions 1731 vs 1734) —
+    // and the screen reader reads that tree, not the visual layout.
+    // That is why we move the node to the end of the container. We do this only for
+    // FINISHED turns, so we do not interfere with streaming.
     if (el.nextElementSibling) blocks.appendChild(el);
     if (el.style.order) el.style.order = '';
     if (el.dataset) el.dataset.a11yOrdered = '1';
@@ -750,24 +750,24 @@ function _a11yEnsureBlockHeadings(row){
 let _a11yHeadingObserver = null;
 let _a11yHeadingPending = false;
 
-/* Przesuniecie numeracji: ile wypowiedzi jest UKRYTYCH powyzej wczytanego okna.
+/* Numbering offset: how many messages are HIDDEN above the loaded window.
  *
- * Zgloszenie Michala (18.08.2026): "w dlugiej sesji numerki sa 1, 2, 3, mimo ze
- * sesja ma kilkadziesiat wiadomosci; wolalbym, zeby wyliczaly sie globalnie -
- * uzytkownik ma miec jasny oglad, ze sesja sie rozwija".
+ * Michal's report (18.08.2026): "in a long session the numbers are 1, 2, 3, even though
+ * the session has dozens of messages; I'd prefer them to be counted globally -
+ * the user should have a clear sense that the session is growing".
  *
- * WebUI wczytuje tylko ogon rozmowy (wstecz doladowuje sie przyciskiem), a
- * numeracja liczyla od pierwszego wiersza W DOM. Ta sama wypowiedz miala wiec
- * inny numer w zaleznosci od tego, ile okna doladowano, a "1." przy 576.
- * wypowiedzi nie mowilo NIC o miejscu w rozmowie.
+ * WebUI loads only the tail of the conversation (older content is loaded backward with a button), and
+ * the numbering counted from the first row IN THE DOM. The same message therefore had
+ * a different number depending on how much of the window was loaded, and "1." at the 576th
+ * message said NOTHING about its place in the conversation.
  *
- * Serwer podaje teraz _visible_turns_before / _visible_turns_total w tej samej
- * przestrzeni co widoczne wiersze (surowy _messages_offset by nie wystarczyl:
- * zmierzone 978 wierszy magazynowych na 100 wypowiedzi w oknie). */
+ * The server now provides _visible_turns_before / _visible_turns_total in the same
+ * space as the visible rows (_messages_offset alone would not be enough:
+ * measured 978 storage rows for 100 messages in the window). */
 let _a11yTurnOffset = 0;
 let _a11yTurnTotal = 0;
 
-/* Wolane po kazdym wczytaniu/doladowaniu okna rozmowy. */
+/* Called after every load/backfill of the conversation window. */
 function a11ySetTurnNumbering(before, total){
   const b = Number(before);
   const t = Number(total);
@@ -776,8 +776,8 @@ function a11ySetTurnNumbering(before, total){
   const zmiana = (nowyOffset !== _a11yTurnOffset) || (nowyTotal !== _a11yTurnTotal);
   _a11yTurnOffset = nowyOffset;
   _a11yTurnTotal = nowyTotal;
-  // Numery sa już w tekstach naglowkow, wiec po zmianie przesuniecia trzeba je
-  // przeliczyc — inaczej doladowanie starszych wiadomosci zostawiloby stare.
+  // Numbers already live in the heading texts, so after the offset changes they must be
+  // recomputed — otherwise loading older messages would leave the old ones behind.
   if (zmiana) { try { a11yDecorateConversationHeadings(); } catch (_e) {} }
   return zmiana;
 }
@@ -797,7 +797,7 @@ function a11yDecorateConversationHeadings(container){
     if (row.classList.contains('msg-row-spacer')) continue;
     n += 1;
     try {
-      // Numer GLOBALNY: pozycja w calej rozmowie, nie w wczytanym oknie.
+      // GLOBAL number: position in the whole conversation, not in the loaded window.
       _a11yEnsureTurnHeading(row, _a11yTurnOffset + n, _a11yTurnTotal);
       _a11yReorderTurn(row);
       _a11yEnsureBlockHeadings(row);
@@ -841,34 +841,34 @@ if (typeof window !== 'undefined') {
   }
 }
 
-/* ── Dostepny wskaznik "Hermes pracuje" ────────────────────────────────────
+/* ── Accessible "Hermes is working" indicator ────────────────────────────────────
  *
- * Zgloszenie uzytkownika: "sesja wyglada jakby wisiala i nie wiem, czy Hermes
- * sie zacial, czy cos sie wysypalo, nic nie wiem".
+ * User report: "the session looks like it is hung and I don't know whether Hermes
+ * got stuck or something crashed, I know nothing".
  *
- * Zmierzona przyczyna: aplikacja WIE, ze trwa praca (przycisk wysylania jest
- * zablokowany, karta "Thinking" jest widoczna), ale zaden z tych sygnalow nie
- * dociera do czytnika ekranu:
- *   - #liveRunStatus     nie ma aria-live, a w trybie zwartym dziennika jest
- *                        w ogole ukrywany (el.hidden=true),
- *   - przycisku Stop     nie ma w dokumencie,
- *   - wskaznika pisania  nie ma,
- *   - blokada przycisku  jest wylacznie wizualna.
- * Efekt: cisza nieodroznialna od awarii. WCAG 4.1.3.
+ * Measured cause: the app KNOWS that work is in progress (the send button is
+ * disabled, the "Thinking" tab is visible), but none of these signals
+ * reaches the screen reader:
+ *   - #liveRunStatus     has no aria-live, and in compact log mode it is
+ *                        hidden completely (el.hidden=true),
+ *   - Stop button        is not in the document,
+ *   - there is no typing indicator,
+ *   - button disabling   is visual only.
+ * Effect: silence indistinguishable from a failure. WCAG 4.1.3.
  *
- * Rozwiazanie w trzech warstwach, celowo oszczedne w mowie:
- *  1. JEDNORAZOWE ogloszenie "Hermes pracuje" na starcie i "gotowe" na koncu
- *     (obszar aktywny #a11yAnnouncer, tryb polite),
- *  2. CICHY stan do sprawdzenia na zadanie: rola status z aria-live=off, wiec
- *     czytnik go NIE czyta sam, ale uzytkownik moze tam wejsc nawigacja i
- *     odczytac biezaca czynnosc oraz czas trwania,
- *  3. NAGLOWEK tury na zywo mowi ", pracuje", zeby po skoku bylo od razu
- *     jasne, ze to jeszcze nie koniec odpowiedzi.
+ * Solution in three layers, deliberately speech-sparing:
+ *  1. a ONE-TIME announcement of "Hermes is working" at the start and "done" at the end
+ *     (#a11yAnnouncer live region, polite mode),
+ *  2. a QUIET state to inspect on demand: role=status with aria-live=off, so
+ *     the screen reader does NOT read it by itself, but the user can navigate there and
+ *     read the current activity and elapsed time,
+ *  3. the LIVE turn HEADING says ", working" so that after jumping it is immediately
+ *     clear that the response is not finished yet.
  *
- * Czego swiadomie NIE robimy: nie wlaczamy aria-live na strumieniu tresci ani
- * na dzienniku. Zalanie czytnika komunikatami co kilkaset milisekund jest
- * gorsze niz cisza, a kontrakt "zapis rozmowy nie jest obszarem aktywnym"
- * pilnuje test tests/test_a11y_transcript_landmarks.py.
+ * What we deliberately do NOT do: we do not enable aria-live on the content stream or
+ * on the log. Flooding the screen reader with announcements every few hundred milliseconds is
+ * worse than silence, and the contract "the transcript is not a live region"
+ * is guarded by tests/test_a11y_transcript_landmarks.py.
  */
 
 let _a11yRunActive = false;
@@ -882,8 +882,8 @@ function _a11yRunStatusHost(){
   el.id = 'a11yRunStatus';
   el.className = 'sr-only';
   el.setAttribute('role', 'status');
-  // aria-live="off": czytnik NIE czyta tego sam. Uzytkownik siega tu, gdy chce
-  // wiedziec, co sie dzieje — bez zalewania go komunikatami.
+  // aria-live="off": the screen reader does NOT read this by itself. The user goes here when they want to
+  // know what is happening — without being flooded by announcements.
   el.setAttribute('aria-live', 'off');
   const anchor = document.getElementById('a11yAnnouncer');
   if (anchor && anchor.parentElement) anchor.parentElement.insertBefore(el, anchor.nextSibling);
@@ -891,8 +891,8 @@ function _a11yRunStatusHost(){
   return el;
 }
 
-/* Nazwa biezacej czynnosci, czytana z tego, co produkt juz pokazuje na ekranie
- * (karta rozumowania / dziennik) — zeby nie wymyslac wlasnego slownika stanow. */
+/* Name of the current activity, read from what the product already shows on screen
+ * (reasoning card / log) — so we do not invent our own state vocabulary. */
 function _a11yCurrentActivity(){
   const live = document.getElementById('liveAssistantTurn');
   const scope = live || document.getElementById('messages');
@@ -914,61 +914,61 @@ function _a11yRunElapsedText(){
   return `${m} min ${String(s % 60).padStart(2, '0')} s`;
 }
 
-/* Prog ciszy: po tylu milisekundach BEZ ZADNEGO przyrostu uznajemy, ze model
- * chwilowo nic nie robi. 12 s, bo licznik odswieza sie co 5 s — krotszy prog
- * migalby "Idle" miedzy zwyklymi porcjami strumienia. */
+/* Silence threshold: after this many milliseconds with NO growth at all, we treat the model as
+ * temporarily doing nothing. 12 s, because the counter refreshes every 5 s — a shorter threshold
+ * would make "Idle" flicker between ordinary stream chunks. */
 const A11Y_RUN_IDLE_AFTER_MS = 12000;
 let _a11yRunLastFingerprint = null;
 let _a11yRunLastChangeAt = null;
 
-/* Odcisk POSTEPU biegu: dlugosc prozy odpowiedzi + tekst biezacej czynnosci.
- * Zmiana odcisku = cos przyroslo. Brak zmiany przez A11Y_RUN_IDLE_AFTER_MS =
- * chwilowa cisza.
+/* Run PROGRESS fingerprint: response prose length + current activity text.
+ * Fingerprint change = something grew. No change for A11Y_RUN_IDLE_AFTER_MS =
+ * temporary silence.
  *
- * Dlaczego odcisk, a nie "czy karta aktywnosci jest na ekranie": karta WISI na
- * ekranie takze wtedy, gdy model milczy (zmierzone — sonda pokazywala
- * "Processed 0s" i status uparcie raportowal prace, choc nic nie przyrastalo).
- * Obecnosc elementu nie jest dowodem postepu; dowodem jest ZMIANA. */
+ * Why a fingerprint instead of "is the activity card on screen": the card STAYS on
+ * screen even when the model is silent (measured — the probe showed
+ * "Processed 0s" and the status stubbornly reported work even though nothing was growing).
+ * The presence of an element is not proof of progress; CHANGE is proof. */
 function _a11yRunProgressFingerprint(){
   const live = document.getElementById('liveAssistantTurn');
-  const proza = live ? ((live.querySelector('.assistant-segment') || {}).textContent || '') : '';
-  return `${proza.trim().length}|${_a11yCurrentActivity()}`;
+  const prose = live ? ((live.querySelector('.assistant-segment') || {}).textContent || '') : '';
+  return `${prose.trim().length}|${_a11yCurrentActivity()}`;
 }
 
 function _a11yRunSilenceMs(){
-  const teraz = Date.now();
+  const current = Date.now();
   const odcisk = _a11yRunProgressFingerprint();
   if (odcisk !== _a11yRunLastFingerprint) {
     _a11yRunLastFingerprint = odcisk;
-    _a11yRunLastChangeAt = teraz;
+    _a11yRunLastChangeAt = current;
     return 0;
   }
   if (_a11yRunLastChangeAt === null) {
-    _a11yRunLastChangeAt = teraz;
+    _a11yRunLastChangeAt = current;
     return 0;
   }
-  return teraz - _a11yRunLastChangeAt;
+  return current - _a11yRunLastChangeAt;
 }
 
-/* Baza pomiaru ciszy NALEZY DO BIEGU, nie do strony.
+/* The silence-measurement baseline BELONGS TO THE RUN, not to the page.
  *
- * Zmierzony defekt (18.08.2026): cichy status pokazywal "Idle — 0 s" — komunikat
- * SPRZECZNY WEWNETRZNIE, bo licznik biegu mowil 0 s (bieg dopiero wstal), a slowo
- * "Idle" wymaga A11Y_RUN_IDLE_AFTER_MS = 12 s BEZ zmiany odcisku. Oba nie moga
- * byc prawda naraz.
+ * Measured defect (18.08.2026): the quiet status showed "Idle — 0 s" — a message
+ * INTERNALLY CONTRADICTORY, because the run timer said 0 s (the run had just started), while the word
+ * "Idle" requires A11Y_RUN_IDLE_AFTER_MS = 12 s WITHOUT a fingerprint change. Both cannot
+ * be true at the same time.
  *
- * PRZYCZYNA: `_a11yRunLastFingerprint` / `_a11yRunLastChangeAt` sa modulowe i
- * zerowane TYLKO przy ZMIANIE odcisku. Gdy uzytkownik po prostu patrzy na
- * otwarta rozmowe, odcisk stoi (np. "0|") i znacznik starzeje sie bez konca.
- * Nowy bieg dziedziczyl wiec cisze sprzed siebie i PIERWSZE odswiezenie stanu
- * przekraczalo prog -> uzytkownik czytnika dostawal "Idle" o pracy, ktora
- * wlasnie sie ZACZELA.
+ * CAUSE: `_a11yRunLastFingerprint` / `_a11yRunLastChangeAt` are module-level and
+ * reset ONLY when the fingerprint CHANGES. When the user simply looks at an
+ * open conversation, the fingerprint stands still (for example "0|") and the marker ages forever.
+ * A new run therefore inherited silence from before itself, and the FIRST state refresh
+ * crossed the threshold -> the screen reader user got "Idle" for work that
+ * had just STARTED.
  *
- * To ta sama klasa bledu, ktora naprawialismy juz dwa razy w tym pliku: stan
- * mierzony globalnie, choc opisuje wlasnosc JEDNEGO biegu. Cisza w toku biegu
- * moze byc liczona najwczesniej od momentu, w ktorym bieg sie zaczal — dlatego
- * baze zeruje JEDEN wspolny helper wolany na KAZDYM przejsciu granicy biegu
- * (start i koniec), a nie kopia warunku w kazdym miejscu zapalajacym stan. */
+ * This is the same bug class that we already fixed twice in this file: state
+ * measured globally even though it describes a property of ONE run. Silence during a run
+ * can be counted at the earliest from the moment the run started — that is why
+ * the baseline is reset by ONE shared helper called on EVERY run-boundary transition
+ * (start and finish), not a copy of the condition in every place that turns the state on. */
 function _a11yResetSilenceBaseline(){
   _a11yRunLastFingerprint = _a11yRunProgressFingerprint();
   _a11yRunLastChangeAt = Date.now();
@@ -980,77 +980,77 @@ function _a11yRefreshRunStatus(){
   const label = (typeof t === 'function' && t('a11y_run_working')) || 'Hermes is working';
   const act = _a11yCurrentActivity();
   const elapsed = _a11yRunElapsedText();
-  // Bieg trwa, ale NIC nie przyroslo od dluzszej chwili -> to PRZERWA w toku,
-  // nie praca. Wtedy mowimy "Idle", zgodnie z rozroznieniem uzytkownika:
-  // puste = koniec, "Idle" = chwilowa cisza, gdy zaraz ma sie jeszcze cos
-  // pojawic. Mierzymy BRAK ZMIANY, a nie brak elementu na ekranie.
+  // The run is still active, but NOTHING has grown for a while -> this is a PAUSE during the run,
+  // not active work. Then we say "Idle", in line with the user's distinction:
+  // empty = finished, "Idle" = temporary silence when something is still about to
+  // appear soon. We measure NO CHANGE, not the absence of an element on screen.
   if (_a11yRunSilenceMs() >= A11Y_RUN_IDLE_AFTER_MS) { a11yRunIdlePause(); return; }
   const text = `${label}${elapsed ? ' — ' + elapsed : ''}${act ? ' — ' + act : ''}`;
   if (el.textContent !== text) el.textContent = text;
 }
 
-/* BIEG SPOZA TEJ PRZEGLADARKI (CLI/TUI, inna karta, bramka).
+/* RUN OUTSIDE THIS BROWSER (CLI/TUI, another tab, gateway).
  *
- * Zgloszenie Michala (18.08.2026): ta sama sesja otwarta w terminalu i w WebUI.
- * W terminalu widac, ze praca trwa; w przegladarce wyglada, jakby Hermes
- * skonczyl. Zmierzone: /api/session zwracalo is_streaming=false i
- * active_stream_id=null DLA SESJI, W KTOREJ AGENT WLASNIE PISAL - serwer sledzi
- * tylko strumienie wlasne, a tura z CLI jest dla niego niewidoczna.
+ * Michal's report (18.08.2026): the same session open in the terminal and in WebUI.
+ * In the terminal it is clear that work is in progress; in the browser it looks as if Hermes
+ * had finished. Measured: /api/session returned is_streaming=false and
+ * active_stream_id=null FOR A SESSION IN WHICH THE AGENT WAS WRITING AT THAT MOMENT - the server tracks
+ * only its own streams, and a turn from CLI is invisible to it.
  *
- * Nasz stan biegu (a11yRunStarted/Finished) jest tu SLUSZNIE wygaszony: ta karta
- * niczego nie wysylala. Brakowalo INFORMACJI, ze pracuje ktos inny. Serwer podaje
- * ja teraz w polach last_activity_at / last_activity_description (pisze je sam
+ * Our run state (a11yRunStarted/Finished) is CORRECTLY idle here: this tab
+ * did not send anything. What was missing was INFORMATION that someone else is working. The server provides
+ * it now in last_activity_at / last_activity_description (the agent writes them itself:
  * agent: "receiving stream response", "executing tool: terminal",
  * "terminal command running (60s elapsed)").
  *
- * Dlaczego prog jest tak luzny: zmierzony rozklad odswiezen tego sygnalu podczas
- * realnej pracy pokazal przerwy do ~58 s (sygnal aktualizuje sie przy ZMIANIE
- * ETAPU, nie co sekunde). Prog krotszy niz to sprawialby, ze komunikat MIGA w
- * trakcie jednego dlugiego wywolania modelu - a migajacy stan jest dla uzytkownika
- * czytnika gorszy niz brak stanu. Dlatego 90 s: z zapasem powyzej najdluzszej
- * zmierzonej przerwy.
+ * Why the threshold is so loose: the measured distribution of refreshes for this signal during
+ * real work showed gaps up to ~58 s (the signal updates when the STAGE changes,
+ * not every second). A shorter threshold would make the message FLICKER during
+ * a single long model call - and a flickering state is worse for the screen reader user
+ * than no state. Therefore 90 s: with margin above the longest
+ * measured gap.
  *
- * Sygnal jest tylko UZUPELNIENIEM: gdy ta karta sama prowadzi bieg, pierwszenstwo
- * ma stan lokalny (dokladniejszy, odswiezany co 5 s). */
+ * This signal is only a SUPPLEMENT: when this tab itself owns the run, priority
+ * goes to the local state (more precise, refreshed every 5 s). */
 const A11Y_FOREIGN_RUN_FRESH_MS = 90000;
 let _a11yForeignRunActive = false;
 
-/* Czy dane sesji mowia, ze KTOS INNY wlasnie pracuje.
- * Zwraca opis czynnosci albo '' (brak obcego biegu). */
-function a11yForeignRunActivity(sesja){
-  if (!sesja || typeof sesja !== 'object') return '';
-  // Sesja zakonczona nie pracuje, choćby znacznik byl swiezy.
-  if (sesja.ended_at) return '';
-  const znacznik = Number(sesja.last_activity_at || 0);
-  if (!znacznik) return '';
-  // Znacznik jest w sekundach epoki (tak zapisuje go agent).
-  const wiekMs = Date.now() - znacznik * 1000;
-  if (!(wiekMs >= 0) || wiekMs > A11Y_FOREIGN_RUN_FRESH_MS) return '';
-  const opis = String(sesja.last_activity_description || '').replace(/\s+/g, ' ').trim();
-  // Bez opisu nie zgadujemy: "cos sie dzieje" bez tresci to szum.
-  if (!opis) return '';
-  return opis.length > 80 ? opis.slice(0, 80).replace(/\s+\S*$/, '') + '…' : opis;
+/* Do the session data say that SOMEONE ELSE is working right now.
+ * Returns an activity description or '' (no foreign run). */
+function a11yForeignRunActivity(sessionData){
+  if (!sessionData || typeof sessionData !== 'object') return '';
+  // A finished session is not working, even if the marker is fresh.
+  if (sessionData.ended_at) return '';
+  const timestamp = Number(sessionData.last_activity_at || 0);
+  if (!timestamp) return '';
+  // The marker is in epoch seconds (that is how the agent writes it).
+  const ageMs = Date.now() - timestamp * 1000;
+  if (!(ageMs >= 0) || ageMs > A11Y_FOREIGN_RUN_FRESH_MS) return '';
+  const description = String(sessionData.last_activity_description || '').replace(/\s+/g, ' ').trim();
+  // Without a description we do not guess: "something is happening" without content is noise.
+  if (!description) return '';
+  return description.length > 80 ? description.slice(0, 80).replace(/\s+\S*$/, '') + '…' : description;
 }
 
-/* Wolane po kazdym odswiezeniu danych sesji. Idempotentne.
+/* Called after every session-data refresh. Idempotent.
  *
- * UWAGA: to NIE jest drugi mechanizm obok watchdoga ponizej. Watchdog decyduje,
- * CZY obcy bieg trwa (na podstawie przyrostu znacznika), a ta funkcja dokleja
- * CZYNNOSC do cichego stanu, gdy bieg nie nalezy do tej karty. */
-function a11ySyncForeignRunState(sesja){
-  const opis = a11yForeignRunActivity(sesja);
-  // Bieg prowadzony przez TA karte jest dokladniejszy - nie nadpisujemy go.
+ * NOTE: this is NOT a second mechanism next to the watchdog below. The watchdog decides
+ * WHETHER a foreign run is active (based on marker growth), and this function adds the
+ * ACTIVITY to the quiet state when the run does not belong to this tab. */
+function a11ySyncForeignRunState(sessionData){
+  const description = a11yForeignRunActivity(sessionData);
+  // A run driven by THIS tab is more precise - we do not override it.
   if (_a11yRunActive) { _a11yForeignRunActive = false; return false; }
   const el = _a11yRunStatusHost();
-  if (opis) {
+  if (description) {
     const label = (typeof t === 'function' && t('a11y_run_working_elsewhere'))
       || 'Hermes is working in another session';
-    const text = `${label} — ${opis}`;
+    const text = `${label} — ${description}`;
     if (el.textContent !== text) el.textContent = text;
     if (!_a11yForeignRunActive) {
       _a11yForeignRunActive = true;
-      // Jednorazowo, tryb polite: uzytkownik ma wiedziec, ze nie patrzy na
-      // skonczona rozmowe. Kolejne odswiezenia sa CICHE.
+      // One time, polite mode: the user should know that they are not looking at a
+      // finished conversation. Later refreshes are QUIET.
       if (typeof a11yAnnounce === 'function') a11yAnnounce(label);
     }
     return true;
@@ -1066,15 +1066,15 @@ function a11yRunStarted(){
   if (_a11yRunActive) return;
   _a11yRunActive = true;
   _a11yRunStartedAt = Date.now();
-  // Cisza liczy sie OD TEGO MOMENTU. Bez tego nowy bieg dziedziczyl znacznik
-  // sprzed siebie i pierwsze odswiezenie wypisywalo "Idle — 0 s".
+  // Silence is counted FROM THIS MOMENT. Without this, a new run would inherit the marker
+  // from before itself and the first refresh would print "Idle — 0 s".
   _a11yResetSilenceBaseline();
   _a11yRefreshRunStatus();
   if (typeof a11yAnnounce === 'function') {
     a11yAnnounce((typeof t === 'function' && t('a11y_run_started')) || 'Hermes is working');
   }
   if (_a11yRunPollTimer) clearInterval(_a11yRunPollTimer);
-  // 5 s: doslownie tylko odswieza CICHY tekst stanu, nic nie mowi.
+  // 5 s: it literally only refreshes the QUIET status text, it announces nothing.
   _a11yRunPollTimer = setInterval(_a11yRefreshRunStatus, 5000);
   try { a11yDecorateConversationHeadings(); } catch (_e) {}
 }
@@ -1084,25 +1084,25 @@ function a11yRunFinished(){
   if (!_a11yRunActive) return;
   _a11yRunActive = false;
   _a11yRunStartedAt = null;
-  // Praca SKONCZONA -> pole zostaje PUSTE, a nie "Idle".
-  // Decyzja uzytkownika (czytnik ekranu): "jesli faktycznie nic nie robi, to
-  // niech jest puste; jesli czekamy i zaraz ma sie jeszcze cos pojawic, a
-  // chwilowo model nic nie robi, no to Idle".
-  // Czyli slowo "Idle" znaczy PRZERWA W TOKU pracy, a nie koniec tury —
-  // inaczej po kazdej odpowiedzi uzytkownik zastawal tam mylacy komunikat
-  // sugerujacy, ze cos jeszcze sie dzieje.
+  // Work FINISHED -> the field stays EMPTY, not "Idle".
+  // User decision (screen reader): "if it really does nothing, then
+  // let it be empty; if we are waiting and something is still about to appear, and
+  // the model is temporarily doing nothing, then Idle".
+  // So the word "Idle" means a PAUSE DURING work, not the end of the turn —
+  // otherwise after every response the user would find a misleading message there
+  // suggesting that something was still happening.
   const el = document.getElementById('a11yRunStatus');
   if (el) el.textContent = '';
-  // Zwalniamy tez baze pomiaru ciszy: nalezala do TEGO biegu. Zostawiony
-  // znacznik jest dokladnie tym, co dawalo "Idle — 0 s" nastepnemu biegowi.
+  // We also release the silence baseline: it belonged to THIS run. A leftover
+  // marker is exactly what caused "Idle — 0 s" for the next run.
   _a11yResetSilenceBaseline();
   try { a11yDecorateConversationHeadings(); } catch (_e) {}
 }
 
-/* Przerwa W TOKU pracy: model chwilowo nic nie robi, ale bieg trwa i zaraz
- * pojawi sie kolejny etap. Tu "Idle" jest na miejscu — informuje, ze nie ma
- * awarii, tylko cisza w trakcie. Wolane tylko przy AKTYWNYM biegu; po jego
- * zakonczeniu pole czysci a11yRunFinished(). */
+/* Pause DURING work: the model is temporarily doing nothing, but the run is still active and soon
+ * another stage will appear. Here "Idle" is appropriate — it tells the user there is no
+ * failure, only silence in the middle of the run. Called only for an ACTIVE run; after it
+ * finishes, a11yRunFinished() clears the field. */
 function a11yRunIdlePause(){
   if (!_a11yRunActive) return;
   const el = _a11yRunStatusHost();
@@ -1114,34 +1114,34 @@ function a11yRunIdlePause(){
 
 function a11yRunIsActive(){ return _a11yRunActive; }
 
-/* ── Obca sesja, ktora WCIAZ PRACUJE ─────────────────────────────────────
+/* ── A foreign session that is STILL WORKING ─────────────────────────────────────
  *
- * Zgloszenie uzytkownika: "jesli otworze dzialajaca z webui sesje, ktora
- * zaczalem z innego miejsca, to jesli tam sie dzieje cos, to tez chce o tym
- * wiedziec i zeby lecial timer - sesja zyje, ja nie mam informacji, ze zyje".
+ * User report: "if I open a session running in webui that
+ * I started somewhere else, then if something is happening there, I also want to
+ * know about it and I want the timer running - the session is alive, I have no information that it is alive".
  *
- * ZMIERZONA PRZYCZYNA: sesja z TUI/Telegrama nie ma `active_stream_id` ani
- * `is_streaming` — webui ustawia te pola TYLKO dla tur, ktore sam rozpoczal.
- * Dla sesji 20260817_192840_e7fa2f serwer zwracal active_stream_id=null,
- * is_streaming=false, mimo ze w state.db ostatnia wiadomosc miala znacznik
- * 4 SEKUNDY wczesniej (praca trwala w tej sekundzie). Zaden z czterech kanalow
- * informacji nie byl wiec wlaczony: wskaznik ukryty, cichy status nieutworzony,
- * stan biegu wylaczony, naglowek bez "working".
+ * MEASURED CAUSE: a session from TUI/Telegram has neither `active_stream_id` nor
+ * `is_streaming` — webui sets these fields ONLY for turns it started itself.
+ * For session 20260817_192840_e7fa2f the server returned active_stream_id=null,
+ * is_streaming=false, even though in state.db the last message had a timestamp
+ * 4 SECONDS earlier (work was active in that second). None of the four information
+ * channels was therefore on: indicator hidden, quiet status not created,
+ * run state off, heading without "working".
  *
- * WIARYGODNY SYGNAL to `last_message_at` z /api/sessions — jedyne pole, ktore
- * ROSNIE niezaleznie od tego, kto prowadzi ture. Pytamy o PRZYROST, nie o
- * obecnosc flagi: przyrost jest dowodem pracy, flaga jest tylko deklaracja
- * wlasciciela strumienia.
+ * The RELIABLE SIGNAL is `last_message_at` from /api/sessions — the only field that
+ * GROWS regardless of who owns the turn. We check GROWTH, not
+ * the presence of a flag: growth is proof of work, a flag is only a declaration of the
+ * stream owner.
  */
 const A11Y_FOREIGN_POLL_MS = 5000;
-/* Drugi przyrost musi przyjsc w tym oknie, zeby uznac prace za TRWAJACA.
- * Jeden przyrost to takze naturalny koniec tury (dochodzi ostatnia wiadomosc),
- * wiec bez potwierdzenia zapalalibysmy "working" po KAZDEJ odpowiedzi. */
+/* A second growth must arrive in this window to treat the work as STILL IN PROGRESS.
+ * One growth is also the natural end of a turn (the last message arrives),
+ * so without confirmation we would light up "working" after EVERY response. */
 const A11Y_FOREIGN_CONFIRM_MS = 12000;
-/* Po tylu ms bez przyrostu uznajemy obca ture za zakonczona. Krotko, bo to jest
- * czas, przez ktory uzytkownik widzi "working" juz PO zakonczeniu pracy —
- * a wlasnie na to bylo zgloszenie. Prog ciszy (A11Y_RUN_IDLE_AFTER_MS = 12 s)
- * jest krotszy, wiec zdazymy jeszcze pokazac "Idle" przed wygaszeniem. */
+/* After this many ms without growth we treat the foreign turn as finished. Short, because this is
+ * the time for which the user sees "working" already AFTER the work finished —
+ * and that was exactly the report. The silence threshold (A11Y_RUN_IDLE_AFTER_MS = 12 s)
+ * is shorter, so we still manage to show "Idle" before clearing it. */
 const A11Y_FOREIGN_DONE_AFTER_MS = 20000;
 let _a11yForeignTimer = null;
 let _a11yForeignSid = null;
@@ -1154,8 +1154,8 @@ function _a11ySidFromLocation(){
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-/* Czy ture prowadzi TA karta. Wtedy nie dotykamy stanu biegu — wlascicielem
- * jest zwykla sciezka strumienia (showLiveRunStatus/hideLiveRunStatus). */
+/* Does THIS tab own the turn? Then we do not touch the run state — the owner
+ * is the regular streaming path (showLiveRunStatus/hideLiveRunStatus). */
 function _a11yThisTabOwnsTurn(){
   try {
     if (typeof S === 'undefined' || !S) return false;
@@ -1166,117 +1166,117 @@ function _a11yThisTabOwnsTurn(){
 async function _a11yForeignPoll(){
   const sid = _a11ySidFromLocation();
   if (sid !== _a11yForeignSid) {
-    // Przelaczono rozmowe — pomiar zaczyna sie od nowa.
+    // Conversation switched — measurement starts over.
     _a11yForeignSid = sid;
     _a11yForeignLastStamp = null;
     _a11yForeignLastGrowthAt = null;
-    // Stan biegu gasimy BEZWARUNKOWO, nie tylko gdy nalezal do watchdoga.
-    // Zmierzony objaw (17.08.2026): po klikniecu innej rozmowy cichy status
-    // dalej mowil "Hermes is working — 5 s", bo stan zapalila INNA droga
-    // (wlasna tura), a warunek na _a11yForeignOwnsRun go nie ruszal. To ta sama
-    // klasa bledu, ktora naprawialismy w hideLiveRunStatus: stan przypisany do
-    // JEDNEGO wlasciciela zostaje zapalony, gdy gasi go kto inny. Praca z
-    // poprzedniej rozmowy nie dotyczy tej, ktora uzytkownik wlasnie otworzyl.
+    // We clear the run state UNCONDITIONALLY, not only when it belonged to the watchdog.
+    // Measured symptom (17.08.2026): after clicking another conversation, the quiet status
+    // still said "Hermes is working — 5 s", because the state had been turned on by ANOTHER path
+    // (the tab's own turn), and the condition on _a11yForeignOwnsRun did not touch it. This is the same
+    // bug class that we fixed in hideLiveRunStatus: state assigned to
+    // ONE owner stays on when someone else is responsible for clearing it. Work from
+    // the previous conversation does not apply to the one the user has just opened.
     _a11yForeignOwnsRun = false;
     if (typeof a11yRunIsActive === 'function' && a11yRunIsActive()) a11yRunFinished();
   }
   if (!sid) return;
   if (_a11yThisTabOwnsTurn()) {
-    // Ture prowadzi TA karta — wlascicielem stanu jest zwykla sciezka strumienia.
-    // Zerujemy baze pomiaru, zeby po ZAKONCZENIU wlasnej tury watchdog nie
-    // zobaczyl "przyrostu" wzgledem znacznika sprzed tury i nie zapalil stanu
-    // ponownie. Po wyzerowaniu pierwszy odczyt tylko ustala baze (nie zapala).
+    // THIS tab owns the turn — the regular stream path owns the state.
+    // We reset the measurement baseline so that after the tab's own turn FINISHES the watchdog does not
+    // see "growth" relative to the marker from before the turn and does not turn the state
+    // on again. After the reset, the first read only establishes the baseline (it does not turn it on).
     _a11yForeignLastStamp = null;
     _a11yForeignLastGrowthAt = null;
     return;
   }
   let stamp = null;
-  let sesja = null;
+  let sessionData = null;
   try {
     const r = await fetch(`/api/session?session_id=${encodeURIComponent(sid)}&messages=0&resolve_model=0`,
                           {credentials: 'same-origin'});
     if (!r.ok) return;
     const d = await r.json();
     const s = (d && d.session) || d || {};
-    sesja = s;
-    // Dwa niezalezne dowody postepu, brane RAZEM.
+    sessionData = s;
+    // Two independent proofs of progress, taken TOGETHER.
     //
-    // Zmierzony defekt (18.08.2026, zgloszenie Michala: "w terminalu widze, ze
-    // sie dzieje, w WebUI wyglada jakby Hermes skonczyl"): tura z CLI potrafi
-    // pracowac DZIESIATKI SEKUND bez ani jednej nowej wiadomosci — probkowanie
-    // 22x co 4 s pokazalo licznik stojacy na 1442 przez cale 88 s, mimo ze agent
-    // pracowal. Sam `last_message_at` daje wiec martwe okna, w ktorych watchdog
-    // gasi stan w srodku pracy.
+    // Measured defect (18.08.2026, Michal's report: "in the terminal I can see that
+    // something is happening, in WebUI it looks as if Hermes finished"): a CLI turn can
+    // work for DOZENS OF SECONDS without a single new message — sampling
+    // 22 times every 4 s showed the counter stuck at 1442 for the full 88 s, even though the agent
+    // was working. `last_message_at` alone therefore creates dead windows in which the watchdog
+    // clears the state in the middle of work.
     //
-    // `last_activity_at` pisze SAM AGENT przy kazdej zmianie etapu (nowe
-    // wywolanie narzedzia, nowy strumien), wiec tyka takze wtedy, gdy nic jeszcze
-    // nie doszlo do zapisu rozmowy. Maksimum z obu jest monotoniczne, wiec cala
-    // logika "przyrost = postep" ponizej zostaje bez zmian.
+    // `last_activity_at` is written by THE AGENT ITSELF at every stage change (new
+    // tool call, new stream), so it ticks even when nothing has yet
+    // reached the transcript storage. The maximum of the two is monotonic, so the whole
+    // logic of "growth = progress" below stays unchanged.
     stamp = Math.max(
       Number(s.last_message_at || s.updated_at || 0) || 0,
       Number(s.last_activity_at || 0) || 0,
     ) || null;
-  } catch (_e) { return; }   // brak sieci nie jest dowodem konca pracy
+  } catch (_e) { return; }   // lack of network is not proof that the work is finished
   if (stamp === null) return;
-  const teraz = Date.now();
+  const current = Date.now();
   if (_a11yForeignLastStamp === null) {
-    // PIERWSZY ODCZYT USTALA TYLKO BAZE — NIGDY nie zapala stanu.
+    // The FIRST READ ONLY SETS THE BASELINE — it NEVER turns the state on.
     //
-    // Byla tu heurystyka "jesli ostatnia wiadomosc jest swiezsza niz 30 s, to
-    // sesja niemal pewnie pracuje" i to byl BLAD, zgloszony przez uzytkownika:
-    // "jestem w sesji w ktorej mi wlasnie odpowiadasz i mam Hermes is working,
-    // a juz przeciez nie pracuje". Zaraz po zakonczeniu tury last_message_at
-    // JEST swiezy — bo wlasnie doszla odpowiedz — wiec warunek zapalal stan
-    // dokladnie w momencie, w ktorym praca sie skonczyla.
+    // There used to be a heuristic here: "if the last message is fresher than 30 s, then
+    // the session is almost certainly working" and that was WRONG, as reported by the user:
+    // "I am in the session where you just answered me and I have Hermes is working,
+    // but it is obviously no longer working". Right after a turn finishes, last_message_at
+    // IS fresh — because the response just arrived — so the condition turned the state on
+    // at exactly the moment when the work had finished.
     //
-    // SWIEZOSC NIE JEST DOWODEM TRWANIA. Dowodem jest wylacznie PRZYROST miedzy
-    // dwoma odczytami: znacznik, ktory sie NIE zmienil, znaczy "nic nie doszlo",
-    // niezaleznie od tego, jak jest swiezy. Kosztem jest do 5 s zwloki przy
-    // wejsciu na trwajaca obca sesje — swiadomie, bo cisza przez chwile jest
-    // znacznie mniej szkodliwa niz komunikat o pracy, ktorej nie ma.
+    // FRESHNESS IS NOT PROOF OF CONTINUATION. The only proof is GROWTH between
+    // two reads: a marker that did NOT change means "nothing arrived",
+    // regardless of how fresh it is. The cost is up to 5 s of delay when entering a
+    // still-running foreign session — deliberately, because a moment of silence is
+    // much less harmful than a message about work that is not happening.
     _a11yForeignLastStamp = stamp;
-    _a11yForeignLastGrowthAt = teraz;
+    _a11yForeignLastGrowthAt = current;
     return;
   }
   if (stamp > _a11yForeignLastStamp) {
-    // Przyrost. UWAGA: JEDEN przyrost NIE dowodzi, ze praca TRWA — dowodzi, ze
-    // COS doszlo. Zakonczona tura tez konczy sie przyrostem (dochodzi ostatnia
-    // wiadomosc), wiec zapalanie stanu po pierwszym przyroscie dawalo "working"
-    // przez caly A11Y_FOREIGN_DONE_AFTER_MS po KAZDEJ zakonczonej odpowiedzi.
-    // Dlatego wymagamy DRUGIEGO przyrostu w krotkim okienku: praca w toku sypie
-    // wiadomosciami po kolei, zakonczona tura ma dokladnie jeden.
-    const poprzedni = _a11yForeignLastGrowthAt;
+    // Growth. NOTE: ONE growth does NOT prove that work is STILL IN PROGRESS — it proves that
+    // SOMETHING arrived. A finished turn also ends with a growth event (the last
+    // message arrives), so turning the state on after the first growth produced "working"
+    // for the entire A11Y_FOREIGN_DONE_AFTER_MS after EVERY finished response.
+    // That is why we require a SECOND growth in a short window: work in progress yields
+    // messages one after another, while a finished turn has exactly one.
+    const previous = _a11yForeignLastGrowthAt;
     _a11yForeignLastStamp = stamp;
-    _a11yForeignLastGrowthAt = teraz;
+    _a11yForeignLastGrowthAt = current;
     if (_a11yRunActive) {
       if (_a11yForeignOwnsRun) _a11yRefreshRunStatus();
       return;
     }
-    const odstep = poprzedni ? (teraz - poprzedni) : Infinity;
-    if (odstep <= A11Y_FOREIGN_CONFIRM_MS) {
+    const gap = previous ? (current - previous) : Infinity;
+    if (gap <= A11Y_FOREIGN_CONFIRM_MS) {
       _a11yForeignOwnsRun = true;
       a11yRunStarted();
     }
-    // Czynnosc podana przez agenta ("executing tool: terminal") jest
-    // dokladniejsza niz cokolwiek, co da sie odczytac z DOM obcej sesji —
-    // ta karta nie renderuje jej tury na zywo.
-    a11ySyncForeignRunState(sesja);
+    // The activity provided by the agent ("executing tool: terminal") is
+    // more precise than anything that can be read from the DOM of a foreign session —
+    // this tab does not render its live turn.
+    a11ySyncForeignRunState(sessionData);
     return;
   }
-  // brak przyrostu
+  // no growth
   if (_a11yForeignOwnsRun) {
-    if (teraz - (_a11yForeignLastGrowthAt || teraz) >= A11Y_FOREIGN_DONE_AFTER_MS) {
+    if (current - (_a11yForeignLastGrowthAt || current) >= A11Y_FOREIGN_DONE_AFTER_MS) {
       _a11yForeignOwnsRun = false;
       a11yRunFinished();
-      a11ySyncForeignRunState(sesja);
+      a11ySyncForeignRunState(sessionData);
     } else {
-      _a11yRefreshRunStatus();   // po progu ciszy samo przejdzie w "Idle"
+      _a11yRefreshRunStatus();   // after the silence threshold it will move to "Idle" on its own
     }
   } else {
-    // Stan nie nalezy do tej karty i nie ma przyrostu: jesli agent nadal
-    // raportuje swieza czynnosc (CLI potrafi milczec dziesiatki sekund),
-    // pokazujemy JA, zamiast udawac, ze rozmowa sie skonczyla.
-    a11ySyncForeignRunState(sesja);
+    // The state does not belong to this tab and there is no growth: if the agent still
+    // reports fresh activity (CLI can stay silent for dozens of seconds),
+    // we show THAT instead of pretending that the conversation has finished.
+    a11ySyncForeignRunState(sessionData);
   }
 }
 

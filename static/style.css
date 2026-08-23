@@ -1656,21 +1656,22 @@
   .session-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
   .session-title-row{display:flex;align-items:center;gap:6px;min-width:0;}
   .session-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);user-select:none;}
-  /* Tytul sesji jest linkiem <a href>, zeby czytnik ekranu ogloszil go jako
-     przejscie do rozmowy i zeby dzialalo otwarcie w nowej karcie. Wyglad ma
-     zostac bez zmiany wobec dawnego <span>: bez podkreslenia, kolor
-     dziedziczony z wiersza. Wskaznik fokusu MUSI byc widoczny — bez niego
-     osoba nawigujaca klawiatura nie wie, gdzie jest (WCAG 2.4.7), a jego
-     kontrast wobec tla musi wynosic co najmniej 3:1 (WCAG 1.4.11). Dlatego
-     var(--accent), a NIE var(--focus-ring): --focus-ring jest polprzezroczysty
-     (alfa .35), wiec zlewa sie z tlem panelu — zmierzone z pikseli dawalo
-     1,15:1 przy wymaganych 3:1.
-     UWAGA na `color`: NIE `inherit`. Przegladarka nadaje <a> wlasny kolor, wiec
-     trzeba go nadpisac — ale `inherit` bierze kolor RODZICA (.session-item ma
-     var(--muted), szary), a dawny <span> mial wlasna regule z var(--text).
-     Zmierzone: tytuly zrobily sie szare rgb(192,192,192) zamiast rgb(255,248,220),
-     czyli poprawka dostepnosci przygasila cala liste. Dlatego wprost var(--text)
-     — tak jak w regule wyzej dla .session-title. */
+  /* The session title is an <a href> link so the screen reader announces it as
+     navigation to a conversation and opening in a new tab works. Its appearance
+     should remain unchanged relative to the former <span>: no underline, color
+     inherited from the row. The focus indicator MUST be visible — without it a
+     keyboard user does not know where they are (WCAG 2.4.7), and its contrast
+     against the background must be at least 3:1 (WCAG 1.4.11). Therefore
+     var(--accent), NOT var(--focus-ring): --focus-ring is semi-transparent
+     (alpha .35), so it blends into the panel background — measured from pixels
+     it yielded 1.15:1 where 3:1 is required.
+     NOTE on `color`: NOT `inherit`. The browser gives <a> its own color, so it
+     must be overridden — but `inherit` takes the PARENT color (.session-item has
+     var(--muted), gray), while the former <span> had its own rule with
+     var(--text). Measured: titles became gray rgb(192,192,192) instead of
+     rgb(255,248,220), so the accessibility fix dimmed the whole list.
+     Therefore use var(--text) explicitly — just like the rule above for
+     .session-title. */
   a.session-title{text-decoration:none;color:var(--text);cursor:pointer;}
   a.session-title:hover{text-decoration:none;}
   a.session-title:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;}

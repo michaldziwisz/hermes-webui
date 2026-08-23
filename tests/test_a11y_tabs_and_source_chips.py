@@ -1,28 +1,28 @@
-"""Zakladki i plakietki zrodel musza mowic to samo, co pokazuja.
+"""Tabs and source chips must say the same thing they show.
 
-Dwa uchybienia zmierzone 18.08.2026 na dzialajacej aplikacji (Edge + CDP), oba
-z tej samej rodziny: informacja istniala WYLACZNIE jako wyglad.
+Two findings measured 18.08.2026 on the running application (Edge + CDP), both
+from the same family: the information existed ONLY as appearance.
 
-1. Pasek Settings > Extensions mial role="tablist" i trzy role="tab", ale ZERO
-   aria-selected, ZERO aria-controls i tablist bez nazwy. Aktywna zakladka byla
-   zakodowana tylko klasa CSS (extensions-tab-active), wiec czytnik ekranu mowil
-   "zakladka Gallery" i nie mowil, KTORA jest biezaca. WCAG 4.1.2.
-   Sasiedni pasek (workspace-panel-tabs) byl poprawny w HTML — czyli defekt to
-   ROZJAZD DWOCH KOPII tego samego wzorca, nie brak wiedzy. Dlatego naprawa
-   wprowadza wspolny helper a11yTablist zamiast dopisywac atrybuty w trzecim
-   miejscu, i dodaje nawigacje strzalkami, ktora rola tab implikuje (ARIA APG).
+1. The Settings > Extensions bar had role="tablist" and three role="tab", but ZERO
+   aria-selected, ZERO aria-controls and a tablist without a name. The active tab
+   was encoded only in a CSS class (extensions-tab-active), so a screen reader
+   said "Gallery tab" without saying WHICH one is current. WCAG 4.1.2.
+   The neighbouring bar (workspace-panel-tabs) was correct in HTML — so the defect
+   is TWO COPIES OF THE SAME PATTERN DRIFTING APART, not missing knowledge. Hence
+   the fix introduces a shared a11yTablist helper instead of adding attributes in
+   a third place, and adds the arrow-key navigation the tab role implies (ARIA APG).
 
-2. Plakietki zrodla rozmowy (9px) mialy kontrast ponizej progu 4.5:1 dla
-   KAZDEGO z czterech kolorow marek. Zmierzone na prawdziwym wierszu listy:
+2. Conversation source chips (9px) had contrast below the 4.5:1 threshold for
+   EVERY one of the four brand colours. Measured on a real list row:
    telegram 2.92:1, discord 2.99:1, slack 1.10:1, claude_code 3.40:1.
-   Slack przy 1.1:1 byl praktycznie nieodrozniany od tla. Naprawa rozjasnia
-   odcien marki dokladnie tyle, ile ten odcien wymaga, zamiast splaszczac
-   wszystko do szarosci — plakietka nadal czyta sie jako "niebieski Telegrama".
+   Slack at 1.1:1 was practically indistinguishable from the background. The fix
+   lightens each brand hue by exactly as much as that hue needs, instead of
+   flattening everything to grey — the chip still reads as "Telegram blue".
 
-Dowody po naprawie (ta sama aparatura): kontrast 4.76 / 4.66 / 4.98 / 4.76,
-pelny kontrakt zakladek od PIERWSZEGO wejscia w sekcje (bez klikania), strzalka
-w prawo przenosi fokus Gallery -> Installed i przelacza panel, dokladnie jeden
-tab ma aria-selected=true i dokladnie jeden jest w kolejnosci Tab.
+Evidence after the fix (same apparatus): contrast 4.76 / 4.66 / 4.98 / 4.76,
+the full tab contract from the FIRST entry into the section (without clicking),
+right arrow moves focus Gallery -> Installed and switches the panel, exactly one
+tab has aria-selected=true and exactly one is in the Tab order.
 """
 
 from pathlib import Path
@@ -140,9 +140,9 @@ BUDOWA_PASKA = """
   const bar = __makeEl('div');
   bar.setAttribute('role', 'tablist');
   __root.appendChild(bar);
-  const klucze = ['gallery', 'installed', 'diagnostics'];
+  const keys = ['gallery', 'installed', 'diagnostics'];
   const panele = {};
-  klucze.forEach(k => {
+  keys.forEach(k => {
     const tab = __makeEl('button');
     tab.setAttribute('role', 'tab');
     tab.dataset.extensionsTab = k;
@@ -153,8 +153,8 @@ BUDOWA_PASKA = """
     __root.appendChild(panel);
     panele[k] = panel;
   });
-  const opcje = (aktywny) => ({
-    label: 'Extension views', activeKey: aktywny,
+  const options = (activeKey) => ({
+    label: 'Extension views', activeKey: activeKey,
     keyOf: b => b.dataset.extensionsTab,
     panelFor: b => panele[b.dataset.extensionsTab],
   });
@@ -164,192 +164,192 @@ BUDOWA_PASKA = """
 class TestTablistHelperDeclaresTheWholeContract:
 
     def test_every_tab_declares_selected_state(self):
-        """Bez aria-selected czytnik nie wie, ktora zakladka jest biezaca."""
+        """Without aria-selected, the screen reader does not know which tab is current."""
         out = _run_js("(() => {" + BUDOWA_PASKA + """
-          a11yTablist(bar, opcje('gallery'));
-          const taby = bar.querySelectorAll('[role="tab"]');
+          a11yTablist(bar, options('gallery'));
+          const tabs = bar.querySelectorAll('[role="tab"]');
           return {
-            stany: taby.map(x => x.getAttribute('aria-selected')),
-            nazwa: bar.getAttribute('aria-label'),
-            controls: taby.map(x => x.getAttribute('aria-controls')),
-            roleP: taby.map(x => document.getElementById(x.getAttribute('aria-controls')).getAttribute('role')),
+            states: tabs.map(x => x.getAttribute('aria-selected')),
+            name: bar.getAttribute('aria-label'),
+            controls: tabs.map(x => x.getAttribute('aria-controls')),
+            roleP: tabs.map(x => document.getElementById(x.getAttribute('aria-controls')).getAttribute('role')),
           };
         })()""")
-        assert out["stany"] == ["true", "false", "false"], (
-            "Dokladnie jedna zakladka jest biezaca i KAZDA musi zadeklarowac swoj stan."
+        assert out["states"] == ["true", "false", "false"], (
+            "Exactly one tab is current, and EVERY tab must declare its state."
         )
-        assert out["nazwa"], "tablist bez nazwy nie mowi, czym jest ten zestaw"
-        assert all(out["controls"]), "kazdy tab musi wskazywac swoj panel"
+        assert out["name"], "an unnamed tablist does not say what this set is"
+        assert all(out["controls"]), "each tab must point to its panel"
         assert out["roleP"] == ["tabpanel"] * 3
 
     def test_roving_tabindex_keeps_one_stop_in_tab_order(self):
-        """Uzytkownik klawiatury nie moze musiec przejsc przez KAZDA zakladke."""
+        """A keyboard user must not have to go through EVERY tab."""
         out = _run_js("(() => {" + BUDOWA_PASKA + """
-          a11yTablist(bar, opcje('installed'));
+          a11yTablist(bar, options('installed'));
           return {ti: bar.querySelectorAll('[role="tab"]').map(x => x.getAttribute('tabindex'))};
         })()""")
         assert out["ti"] == ["-1", "0", "-1"], (
-            "Tylko zakladka biezaca jest w kolejnosci Tab; po zestawie chodzi sie strzalkami."
+            "Only the current tab is in the Tab order; the set is traversed with arrow keys."
         )
 
     def test_arrow_keys_move_and_activate(self):
-        """Strzalki sa czescia kontraktu roli tab (ARIA APG: Tabs)."""
+        """Arrow keys are part of the tab role contract (ARIA APG: Tabs)."""
         out = _run_js("(() => {" + BUDOWA_PASKA + """
-          a11yTablist(bar, opcje('gallery'));
-          const taby = bar.querySelectorAll('[role="tab"]');
+          a11yTablist(bar, options('gallery'));
+          const tabs = bar.querySelectorAll('[role="tab"]');
           let klikniety = null;
-          taby.forEach(x => x.addEventListener('click', () => { klikniety = x.dataset.extensionsTab; }));
-          taby[0].focus();
+          tabs.forEach(x => x.addEventListener('click', () => { klikniety = x.dataset.extensionsTab; }));
+          tabs[0].focus();
           let zablokowane = false;
           bar.dispatch('keydown', {key: 'ArrowRight', preventDefault(){ zablokowane = true; }, stopPropagation(){}});
           const poPrawo = document.activeElement.dataset.extensionsTab;
           bar.dispatch('keydown', {key: 'Home', preventDefault(){}, stopPropagation(){}});
           const poHome = document.activeElement.dataset.extensionsTab;
-          taby[0].focus();
+          tabs[0].focus();
           bar.dispatch('keydown', {key: 'ArrowLeft', preventDefault(){}, stopPropagation(){}});
           const poLewo = document.activeElement.dataset.extensionsTab;
           return {poPrawo, poHome, poLewo, klikniety, zablokowane};
         })()""")
-        assert out["poPrawo"] == "installed", "strzalka w prawo przechodzi na nastepna zakladke"
-        assert out["poLewo"] == "diagnostics", "z pierwszej w lewo wracamy na ostatnia (zawijanie)"
+        assert out["poPrawo"] == "installed", "Right Arrow moves to the next tab"
+        assert out["poLewo"] == "diagnostics", "from the first tab, Left Arrow wraps to the last tab"
         assert out["poHome"] == "gallery"
         assert out["klikniety"], (
-            "Przejscie strzalka musi PRZELACZYC panel — w tej aplikacji klik jest "
-            "przelaczeniem, wiec sama zmiana fokusu zostawilaby ARIA i widok rozjechane."
+            "An arrow-key move must SWITCH the panel — in this app, click performs "
+            "the switch, so changing focus alone would leave ARIA and the view out of sync."
         )
         assert out["zablokowane"] is True, (
-            "Bez preventDefault strzalka przewija tez strone pod uzytkownikiem."
+            "Without preventDefault, the arrow key also scrolls the page under the user."
         )
 
     def test_helper_is_idempotent(self):
-        """Wolane po kazdym przelaczeniu — nie moze mnozyc nasluchow ani atrybutow."""
+        """Called after every switch — it must not multiply listeners or attributes."""
         out = _run_js("(() => {" + BUDOWA_PASKA + """
-          a11yTablist(bar, opcje('gallery'));
-          a11yTablist(bar, opcje('gallery'));
-          a11yTablist(bar, opcje('diagnostics'));
-          const taby = bar.querySelectorAll('[role="tab"]');
-          taby[0].focus();
-          let ile = 0;
-          taby.forEach(x => x.addEventListener('click', () => { ile++; }));
+          a11yTablist(bar, options('gallery'));
+          a11yTablist(bar, options('gallery'));
+          a11yTablist(bar, options('diagnostics'));
+          const tabs = bar.querySelectorAll('[role="tab"]');
+          tabs[0].focus();
+          let count = 0;
+          tabs.forEach(x => x.addEventListener('click', () => { count++; }));
           bar.dispatch('keydown', {key: 'ArrowRight', preventDefault(){}, stopPropagation(){}});
-          return {stany: taby.map(x => x.getAttribute('aria-selected')), klikniec: ile,
-                  nasluchow: (bar._listeners.keydown || []).length};
+          return {states: tabs.map(x => x.getAttribute('aria-selected')), clicks: count,
+                  listeners: (bar._listeners.keydown || []).length};
         })()""")
-        assert out["stany"] == ["false", "false", "true"], "stan wynika z activeKey, nie narasta"
-        assert out["nasluchow"] == 1, "nasluch klawiatury zaklada sie DOKLADNIE raz"
-        assert out["klikniec"] == 1, "jedno nacisniecie = jedno przelaczenie"
+        assert out["states"] == ["false", "false", "true"], "state comes from activeKey, it does not accumulate"
+        assert out["listeners"] == 1, "the keyboard listener is attached EXACTLY once"
+        assert out["clicks"] == 1, "one key press = one switch"
 
     def test_state_is_never_left_undeclared(self):
-        """Fail closed: bez keyOf i bez isActive stan i tak MUSI byc zadeklarowany."""
+        """Fail closed: without keyOf and without isActive, the state still MUST be declared."""
         out = _run_js("(() => {" + BUDOWA_PASKA + """
           a11yTablist(bar, {label: 'x'});
-          return {stany: bar.querySelectorAll('[role="tab"]').map(x => x.getAttribute('aria-selected'))};
+          return {states: bar.querySelectorAll('[role="tab"]').map(x => x.getAttribute('aria-selected'))};
         })()""")
-        assert None not in out["stany"], (
-            "Brak informacji o wyborze jest gorszy niz 'false' — czytnik milczy o stanie."
+        assert None not in out["states"], (
+            "Missing selection information is worse than 'false' — the screen reader stays silent about state."
         )
 
 
 class TestExtensionsTabsUseTheSharedMechanism:
 
     def test_aria_contract_is_declared_where_the_bar_becomes_visible(self):
-        """Kontrakt zakladek nie moze zalezec od tego, czy ktorys panel sie wyrenderowal.
+        """The tab contract must not depend on whether any panel rendered.
 
-        Pierwsza wersja tej naprawy wolala helper w loadExtensionsPanel PO
-        `if(!target) return;`, gdzie target to panel DIAGNOSTYKI — wiec wejscie na
-        zakladke Gallery wychodzilo z funkcji przed ustawieniem atrybutow.
-        Zmierzone na dzialajacej aplikacji: zakladki nadal bez aria-selected.
+        The first version of this fix called the helper in loadExtensionsPanel AFTER
+        `if(!target) return;`, where target is the DIAGNOSTICS panel — so entering the
+        Gallery tab left the function before attributes were set.
+        Measured in the working app: the tabs still had no aria-selected.
 
-        Wlasciwe miejsce to switchSettingsSection, gdzie pasek staje sie widoczny,
-        i to POZA galezia skipLazyLoad: nawigacja z wyszukiwarki ustawien pokazuje
-        ten sam pasek, nie uruchamiajac loadera. Warunek widocznosci i warunek
-        dostepnosci musza byc tym samym warunkiem.
+        The correct place is switchSettingsSection, where the tab bar becomes visible,
+        and it must be OUTSIDE the skipLazyLoad branch: navigation from settings search
+        shows the same tab bar without running the loader. The visibility condition and
+        the accessibility condition must be the same condition.
         """
         idx = PANELS_JS.find("function switchSettingsSection(")
-        assert idx > 0, "brak switchSettingsSection"
+        assert idx > 0, "missing switchSettingsSection"
         koniec = PANELS_JS.find("\n}", idx)
-        cialo = PANELS_JS[idx:koniec]
+        body = PANELS_JS[idx:koniec]
         kod = "\n".join(
-            linia for linia in cialo.splitlines()
-            if not linia.strip().startswith(("//", "*", "/*"))
+            line for line in body.splitlines()
+            if not line.strip().startswith(("//", "*", "/*"))
         )
         assert "_extensionsSyncTabsA11y()" in kod, (
-            "Kontrakt ARIA musi powstac tam, gdzie sekcja Extensions staje sie widoczna."
+            "The ARIA contract must be created where the Extensions section becomes visible."
         )
         poz_sync = kod.find("_extensionsSyncTabsA11y()")
         poz_lazy = kod.find("if(!(opts&&opts.skipLazyLoad)){")
         poz_koniec_lazy = kod.find("}", kod.find("loadExtensionsPanel();"))
         assert poz_lazy > 0 and poz_koniec_lazy > poz_lazy
         assert poz_sync > poz_koniec_lazy, (
-            "Wywolanie stoi w galezi skipLazyLoad — wejscie z wyszukiwarki ustawien "
-            "pokazalo by pasek bez zadeklarowanego stanu."
+            "The call sits in the skipLazyLoad branch — entering from settings search "
+            "would show the tab bar without declared state."
         )
 
     def test_both_paths_use_one_entry_point(self):
-        """Kontrakt nalozony na jednej drodze rozjezdza sie na drugiej."""
+        """A contract applied on one path drifts apart on the other."""
         assert "function _extensionsSyncTabsA11y()" in PANELS_JS
         idx = PANELS_JS.find("function switchExtensionsTab(")
-        cialo = PANELS_JS[idx:PANELS_JS.find("\n}", idx)]
-        assert "_extensionsSyncTabsA11y()" in cialo, (
-            "Przelaczanie zakladek musi isc ta sama droga co pierwsze wyrysowanie."
+        body = PANELS_JS[idx:PANELS_JS.find("\n}", idx)]
+        assert "_extensionsSyncTabsA11y()" in body, (
+            "Tab switching must go through the same path as the first render."
         )
-        # helper wolany z jednego miejsca w kazdej drodze, bez kopii atrybutow
-        assert "setAttribute('aria-selected'" not in cialo, (
-            "Kopia ustawiania atrybutow obok wspolnego helpera to zapowiedz rozjazdu."
+        # helper called from one place on each path, with no copied attributes
+        assert "setAttribute('aria-selected'" not in body, (
+            "A copied attribute-setting block next to the shared helper is a recipe for drift."
         )
 
     def test_tablist_label_is_translated_everywhere(self):
         """Repo wymaga pokrycia klucza we wszystkich locale (nie tylko 'en')."""
-        wystapienia = len(re.findall(r"settings_extensions_tabs_aria\s*:", I18N_JS))
-        naglowki = len(re.findall(r"^\s{2}'?[A-Za-z-]+'?\s*:\s*\{", I18N_JS, re.M))
-        assert wystapienia >= 15, (
-            f"klucz jest w {wystapienia} locale, a plik ma {naglowki} sekcji jezykow — "
-            "brakujace tlumaczenie to nasz dlug, nie autora."
+        occurrences = len(re.findall(r"settings_extensions_tabs_aria\s*:", I18N_JS))
+        sections = len(re.findall(r"^\s{2}'?[A-Za-z-]+'?\s*:\s*\{", I18N_JS, re.M))
+        assert occurrences >= 15, (
+            f"the key is in {occurrences} locales, and the file has {sections} language sections — "
+            "a missing translation is our debt, not the author's."
         )
 
 
 class TestSourceChipContrast:
-    """Kolor marki nie zwalnia z progu czytelnosci (WCAG 1.4.3)."""
+    """A brand color does not exempt you from the readability threshold (WCAG 1.4.3)."""
 
     def test_chip_colours_come_from_one_shared_rule(self):
         idx = STYLE_CSS.find(".session-source-chip[data-source-key]")
-        assert idx > 0, "brak wspolnej reguly wyliczajacej kolor plakietki"
+        assert idx > 0, "missing the shared rule that computes the chip color"
         blok = STYLE_CSS[idx:idx + 400]
         assert "color-mix" in blok and "var(--source-hue)" in blok, (
-            "Kolor ma byc WYLICZANY z odcienia marki, nie wpisywany osobno per zrodlo."
+            "The color must be COMPUTED from the brand hue, not hardcoded separately per source."
         )
 
     def test_every_source_declares_its_hue(self):
         for zrodlo in ("telegram", "discord", "slack", "claude_code"):
             m = re.search(rf'\[data-source-key="{zrodlo}"\][^{{]*\{{([^}}]*)\}}', STYLE_CSS)
-            assert m, f"brak deklaracji odcienia dla zrodla {zrodlo}"
+            assert m, f"missing hue declaration for source {zrodlo}"
             assert "--source-hue" in m.group(1), (
-                f"{zrodlo} musi podac odcien przez zmienna, inaczej wypadnie ze wspolnej reguly"
+                f"{zrodlo} must provide the hue through a variable, otherwise it falls out of the shared rule"
             )
 
     def test_no_alpha_on_chip_text_colour(self):
-        """Alfa na tekscie mnozy sie przez tlo i po cichu zjada kontrast.
+        """Alpha on text multiplies through the background and quietly eats contrast.
 
-        Wlasnie tak te plakietki zeszly do 1.1-3.4:1: kolory byly podane jako
-        rgba(...,0.85) na polprzezroczystym tle, wiec zmierzony kontrast byl
-        znacznie nizszy, niz sugerowala sama wartosc koloru.
+        That is exactly how these chips dropped to 1.1-3.4:1: the colors were given as
+        rgba(...,0.85) on a semi-transparent background, so the measured contrast was
+        much lower than the color value alone suggested.
         """
         for zrodlo in ("telegram", "discord", "slack", "claude_code"):
             m = re.search(rf'\[data-source-key="{zrodlo}"\][^{{]*\{{([^}}]*)\}}', STYLE_CSS)
-            assert m, f"brak deklaracji odcienia dla zrodla {zrodlo}"
+            assert m, f"missing hue declaration for source {zrodlo}"
             hue = re.search(r"--source-hue:\s*([^;]+);", m.group(1))
-            assert hue, f"{zrodlo}: brak --source-hue"
+            assert hue, f"{zrodlo}: missing --source-hue"
             assert "rgba" not in hue.group(1).lower(), (
-                f"{zrodlo}: odcien z alfa — kontrast bedzie nizszy, niz wyglada"
+                f"{zrodlo}: hue with alpha — contrast will be lower than it looks"
             )
 
     def test_unknown_source_is_legible_by_default(self):
-        """Nowe zrodlo ma byc czytelne PRZED pomiarem (fail safe)."""
+        """A new source must be legible BEFORE measurement (fail safe)."""
         idx = STYLE_CSS.find(".session-source-chip[data-source-key]")
         blok = STYLE_CSS[idx:idx + 400]
         m = re.search(r"var\(--source-tint-keep,\s*(\d+)%\)", blok)
-        assert m, "brak wartosci domyslnej dla --source-tint-keep"
+        assert m, "missing default value for --source-tint-keep"
         assert int(m.group(1)) <= 50, (
-            "Domyslna wartosc musi odpowiadac NAJCIEMNIEJSZEMU odcieniowi (Slack, 50%), "
-            "inaczej nowo dodane zrodlo moze byc nieczytelne, dopoki ktos tego nie zmierzy."
+            "The default value must match the DARKEST hue (Slack, 50%), "
+            "otherwise a newly added source may be illegible until someone measures it."
         )

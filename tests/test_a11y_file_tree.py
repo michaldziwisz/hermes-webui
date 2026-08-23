@@ -1,32 +1,32 @@
-"""Drzewo plikow musi mowic, czym jest kazdy wiersz i jak sie nim poslugiwac.
+"""The file tree must say what each row is and how to use it.
 
-Zgloszenie (18.08.2026): w zakladce Files czytnik czytal
+Report (2026-08-18): in the Files tab the screen reader read
     "▸  .cache  ×      ▸  .cloak-venv  ×      ▸  .cloakbrowser  ×"
-Slowa uzytkownika: "i badz tu madry co to jest, o co chodzi i jak z tym sie
-obchodzic". Trzy rzeczy naraz byly nie do odczytania: czym jest wiersz, w jakim
-jest stanie i co robi przycisk obok.
+The user's words: "and now try to figure out what this is, what it means, and
+how to use it". Three things were unreadable at once: what the row is, what
+state it is in, and what the adjacent button does.
 
-ZMIERZONE BRAKI (wszystkie 7 jednoczesnie, krok142):
-  wiersz ma role .................. BRAK  -> <div>, czytnik nie widzi kontrolki
-  wiersz ma tabindex .............. BRAK  -> nie da sie dojsc klawiatura
-  strzalka ma aria-expanded ....... BRAK  -> brak "zwiniete/rozwiniete"
-  strzalka ma nazwe ............... BRAK  -> czytany sam znak ▸
-  przycisk usuwania ma aria-label . BRAK  -> czytany znak × albo nic
-  wiersz ma aria-level ............ BRAK  -> nieznany poziom zagniezdzenia
-  kontener ma role=tree ........... BRAK  -> zbior luznych elementow
+MEASURED GAPS (all 7 at the same time, step142):
+  row has role .................... MISSING  -> <div>, the screen reader does not see a control
+  row has tabindex ................ MISSING  -> it cannot be reached by keyboard
+  twisty has aria-expanded ........ MISSING  -> no "collapsed/expanded"
+  twisty has a name ............... MISSING  -> only the ▸ character is read
+  delete button has aria-label .... MISSING  -> the × character is read, or nothing
+  row has aria-level .............. MISSING  -> unknown nesting level
+  container has role=tree ......... MISSING  -> a set of loose elements
 
-DECYZJE PROJEKTOWE, ktore te testy pilnuja:
- * role=tree, nie lista przyciskow - katalogi sie ZWIJAJA i wiersze sa
-   ZAGNIEZDZONE; tylko drzewo ma slownictwo na oba fakty (aria-expanded,
-   aria-level) i gotowa nawigacje w czytnikach,
- * PLIK nie dostaje aria-expanded - dla liscia ten atrybut klamie, sugerujac
-   ze cos da sie rozwinac,
- * roving tabindex (jeden wiersz w kolejnosci Tab) - drzewo z setka plikow nie
-   moze wymagac setki nacisniec Tab, zeby je przeskoczyc,
- * nazwa przycisku usuwania zawiera NAZWE WPISU - przy 20 wierszach samo "usun"
-   nie pozwala odroznic, ktory przycisk co usunie,
- * strzalka i ikona sa aria-hidden - stan i rodzaj niesie wiersz, wiec inaczej
-   czytnik powtarzalby znak ▸ przed kazda nazwa.
+DESIGN DECISIONS enforced by these tests:
+ * role=tree, not a list of buttons - folders COLLAPSE and rows are
+   NESTED; only a tree has vocabulary for both facts (aria-expanded,
+   aria-level) and built-in screen reader navigation,
+ * a FILE does not get aria-expanded - on a leaf, that attribute lies and
+   suggests something can be expanded,
+ * roving tabindex (one row in the Tab order) - a tree with a hundred files
+   must not require a hundred Tab presses to skip through it,
+ * the delete button name includes THE ENTRY NAME - with 20 rows, plain "delete"
+   does not let a screen reader user tell which button deletes what,
+ * the twisty and icon are aria-hidden - the row carries the state and type, so otherwise
+   the screen reader would repeat the ▸ character before every name.
 """
 
 from pathlib import Path
@@ -46,83 +46,83 @@ HARNESS = Path(__file__).parent / "_harness_drzewo.js"
 
 
 class TestHelperyIstniejaISaWpiete:
-    def test_helpery_drzewa_istnieja(self):
+    def test_tree_helpers_exist(self):
         assert "function a11yTreeRow(" in A11Y_JS
         assert "function a11yTree(" in A11Y_JS
 
-    def test_helpery_sa_eksportowane(self):
+    def test_helpers_are_exported(self):
         assert "window.a11yTree = a11yTree" in A11Y_JS
         assert "window.a11yTreeRow = a11yTreeRow" in A11Y_JS
 
-    def test_wiersz_drzewa_uzywa_helpera(self):
+    def test_tree_row_uses_the_helper(self):
         assert "a11yTreeRow(el, {" in UI_JS, (
-            "wiersze drzewa plikow musza przechodzic przez helper"
+            "file tree rows must go through the helper"
         )
 
-    def test_kontener_drzewa_uzywa_helpera(self):
+    def test_tree_container_uses_the_helper(self):
         idx = UI_JS.find("_renderTreeItems(box, visibleEntries, 0);")
         assert idx > 0
         assert "a11yTree(box" in UI_JS[idx:idx + 900], (
-            "kontener musi dostac role=tree po kazdym przerysowaniu"
+            "the container must receive role=tree after every repaint"
         )
 
-    def test_wpiecie_jest_po_kazdym_przerysowaniu(self):
-        """innerHTML='' niszczy wiersze, wiec kontrakt trzeba odtwarzac."""
+    def test_wiring_runs_after_every_repaint(self):
+        """innerHTML='' destroys rows, so the contract must be restored."""
         idx = UI_JS.find("function renderFileTree(")
         assert idx > 0
-        cialo = UI_JS[idx:idx + 3000]
-        assert "box.innerHTML=''" in cialo
-        assert "a11yTree(box" in cialo
+        body = UI_JS[idx:idx + 3000]
+        assert "box.innerHTML=''" in body
+        assert "a11yTree(box" in body
 
 
-class TestDekoracjeSaUkryte:
-    def test_strzalka_jest_ukryta(self):
+class TestDecorationsAreHidden:
+    def test_twisty_is_hidden_from_the_tree(self):
         idx = UI_JS.find("arrow.className='file-tree-toggle'")
         assert idx > 0
         assert "aria-hidden" in UI_JS[idx:idx + 500], (
-            "bez tego czytnik czyta znak ▸ przed kazda nazwa"
+            "without this, the screen reader reads the ▸ character before every name"
         )
 
-    def test_ikona_jest_ukryta(self):
+    def test_icon_is_hidden_from_the_tree(self):
         idx = UI_JS.find("iconEl.className='file-icon'")
         assert idx > 0
         assert "aria-hidden" in UI_JS[idx:idx + 400]
 
 
-class TestPrzyciskUsuwaniaMowiCoUsuwa:
-    def test_ma_nazwe_dostepna(self):
+class TestDeleteButtonSaysWhatItDeletes:
+    def test_has_an_accessible_name(self):
         assert UI_JS.count("del.setAttribute('aria-label'") >= 2, (
-            "oba przyciski (plik i katalog) musza miec nazwe"
+            "both buttons (file and folder) must have a name"
         )
 
-    def test_nazwa_zawiera_nazwe_wpisu(self):
+    def test_name_contains_the_entry_name(self):
         assert "_delLabel(item.name)" in UI_JS, (
-            "samo 'usun' nie odroznia dwudziestu przyciskow od siebie"
+            "plain 'delete' does not distinguish twenty buttons from one another"
         )
 
-    def test_ma_typ_button(self):
+    def test_has_button_type(self):
         assert UI_JS.count("del.setAttribute('type','button')") >= 2
 
-    def test_klucz_tlumaczenia_ma_miejsce_na_nazwe(self):
+    def test_translation_key_has_a_slot_for_the_name(self):
         assert "delete_entry_aria" in I18N_JS
         assert "{name}" in I18N_JS
 
 
-class TestTlumaczeniaWeWszystkichLocale:
-    @pytest.mark.parametrize("klucz", [
+class TestTranslationsInEveryLocale:
+    @pytest.mark.parametrize("key", [
         "workspace_tree_aria", "tree_folder_aria", "tree_file_aria",
         "tree_external_link_aria", "delete_entry_aria",
     ])
-    def test_klucz_w_15_locale(self, klucz):
-        assert I18N_JS.count(f"{klucz}:") == 15, (
-            f"{klucz}: {I18N_JS.count(klucz + ':')} wystapien, oczekiwano 15"
+    def test_key_present_in_15_locales(self, key):
+        assert I18N_JS.count(f"{key}:") == 15, (
+            f"{key}: {I18N_JS.count(key + ':')} occurrences, expected 15"
         )
 
 
-# ── pomiar zachowania w node ────────────────────────────────────────────────
+# ── behavior measurement in Node ───────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def zachowanie(tmp_path_factory):
+def behaviour(tmp_path_factory):
     if not NODE:
         pytest.skip("node niedostepny")
     if not HARNESS.exists():
@@ -132,76 +132,76 @@ def zachowanie(tmp_path_factory):
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
-class TestZachowanieWiersza:
-    def test_katalog_ma_kontrakt_drzewa(self, zachowanie):
-        k = zachowanie["katalogZwiniety"]
+class TestRowBehaviour:
+    def test_folder_carries_the_tree_contract(self, behaviour):
+        k = behaviour["collapsedFolder"]
         assert k["role"] == "treeitem"
         assert k["expanded"] == "false"
         assert k["level"] == "1"
 
-    def test_katalog_mowi_czym_jest(self, zachowanie):
-        """Sedno zgloszenia: zamiast "▸" ma byc "folder .cache"."""
-        label = zachowanie["katalogZwiniety"]["label"] or ""
+    def test_folder_states_what_it_is(self, behaviour):
+        """The core of the report: instead of "▸" it should be "folder .cache"."""
+        label = behaviour["collapsedFolder"]["label"] or ""
         assert "folder" in label and ".cache" in label, f"label={label}"
 
-    def test_rozwiniety_katalog_to_mowi(self, zachowanie):
-        assert zachowanie["katalogRozwiniety"]["expanded"] == "true"
+    def test_expanded_folder_says_so(self, behaviour):
+        assert behaviour["expandedFolder"]["expanded"] == "true"
 
-    def test_glebokosc_jest_podana(self, zachowanie):
-        assert zachowanie["katalogRozwiniety"]["level"] == "3"
+    def test_depth_is_exposed(self, behaviour):
+        assert behaviour["expandedFolder"]["level"] == "3"
 
-    def test_plik_nie_udaje_ze_da_sie_rozwinac(self, zachowanie):
-        assert zachowanie["plik"]["maExpanded"] is False, (
-            "aria-expanded na lisciu klamie"
+    def test_file_does_not_pretend_to_be_expandable(self, behaviour):
+        assert behaviour["plik"]["maExpanded"] is False, (
+            "aria-expanded on a leaf is misleading"
         )
 
-    def test_plik_mowi_ze_to_plik(self, zachowanie):
-        assert "file" in (zachowanie["plik"]["label"] or "")
+    def test_file_states_it_is_a_file(self, behaviour):
+        assert "file" in (behaviour["plik"]["label"] or "")
 
 
-class TestZachowanieKontenera:
-    def test_kontener_jest_drzewem(self, zachowanie):
-        assert zachowanie["kontener"]["role"] == "tree"
+class TestContainerBehaviour:
+    def test_container_is_a_tree(self, behaviour):
+        assert behaviour["kontener"]["role"] == "tree"
 
-    def test_kontener_ma_nazwe(self, zachowanie):
-        assert zachowanie["kontener"]["maNazwe"] is True
+    def test_container_has_a_name(self, behaviour):
+        assert behaviour["kontener"]["maNazwe"] is True
 
-    def test_nasluch_nie_mnozy_sie_przy_przerysowaniu(self, zachowanie):
-        """renderFileTree wola helper po kazdym rysowaniu - musi byc idempotentny."""
-        assert zachowanie["kontener"]["nasluchowPoTrzechWywolaniach"] == 1
+    def test_listener_is_not_duplicated_on_repaint(self, behaviour):
+        """renderFileTree calls the helper after every render, so it must be idempotent."""
+        assert behaviour["kontener"]["listenersAfterThreeCalls"] == 1
 
 
 class TestNawigacjaKlawiatura:
-    def test_strzalki_w_dol_i_gore(self, zachowanie):
-        assert zachowanie["nawigacja"]["dolNaDrugi"] is True
-        assert zachowanie["nawigacja"]["goraWraca"] is True
+    def test_down_and_up_arrows(self, behaviour):
+        assert behaviour["nawigacja"]["downToSecond"] is True
+        assert behaviour["nawigacja"]["upReturns"] is True
 
-    def test_roving_tabindex(self, zachowanie):
-        assert zachowanie["nawigacja"]["rovingPrzeszedl"] is True, (
-            "tylko jeden wiersz moze byc w kolejnosci Tab"
+    def test_roving_tabindex(self, behaviour):
+        assert behaviour["nawigacja"]["rovingMoved"] is True, (
+            "only one row may be in the Tab order"
         )
 
-    def test_home_i_end(self, zachowanie):
-        assert zachowanie["nawigacja"]["endNaOstatni"] is True
-        assert zachowanie["nawigacja"]["homeNaPierwszy"] is True
+    def test_home_i_end(self, behaviour):
+        assert behaviour["nawigacja"]["endToLast"] is True
+        assert behaviour["nawigacja"]["homeToFirst"] is True
 
-    def test_prawo_rozwija_lewo_zwija(self, zachowanie):
-        assert zachowanie["nawigacja"]["prawoRozwija"] is True
-        assert zachowanie["nawigacja"]["lewoZwija"] is True
+    def test_prawo_rozwija_lewo_zwija(self, behaviour):
+        assert behaviour["nawigacja"]["rightExpands"] is True
+        assert behaviour["nawigacja"]["leftCollapses"] is True
 
-    def test_lewo_na_pliku_wychodzi_do_rodzica(self, zachowanie):
-        assert zachowanie["nawigacja"]["lewoDoRodzica"] is True
+    def test_left_arrow_on_file_moves_to_parent(self, behaviour):
+        assert behaviour["nawigacja"]["leftToParent"] is True
 
-    def test_enter_aktywuje(self, zachowanie):
-        assert zachowanie["nawigacja"]["enterAktywuje"] is True
+    def test_enter_activates(self, behaviour):
+        assert behaviour["nawigacja"]["enterActivates"] is True
 
 
-class TestOdpornosc:
-    def test_null_nie_wywraca_renderowania(self, zachowanie):
-        assert zachowanie["odpornosc"]["nullOk"] is True
+class TestRobustness:
+    def test_null_does_not_break_rendering(self, behaviour):
+        assert behaviour["odpornosc"]["nullOk"] is True
 
-    def test_bez_opcji_nadal_treeitem(self, zachowanie):
-        assert zachowanie["odpornosc"]["bezOpcjiRole"] == "treeitem"
+    def test_still_a_treeitem_without_options(self, behaviour):
+        assert behaviour["odpornosc"]["bezOpcjiRole"] == "treeitem"
 
-    def test_nie_zgadujemy_poziomu(self, zachowanie):
-        assert zachowanie["odpornosc"]["bezPoziomuMaLevel"] is False
+    def test_level_is_not_guessed(self, behaviour):
+        assert behaviour["odpornosc"]["bezPoziomuMaLevel"] is False

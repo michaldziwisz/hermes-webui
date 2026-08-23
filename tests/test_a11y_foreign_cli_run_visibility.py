@@ -1,30 +1,30 @@
-"""Praca prowadzona z CLI/TUI musi byc widoczna w przegladarce.
+"""Work performed from the CLI/TUI must be visible in the browser.
 
-Zgloszenie (18.08.2026): ta sama sesja otwarta rownolegle w terminalu i w WebUI.
-W terminalu widac, ze tura trwa; w przegladarce wyglada, jakby Hermes skonczyl
-dzialac. Dla uzytkownika czytnika ekranu to najgorszy mozliwy stan: cisza
-nieodrozninalna od awarii (WCAG 4.1.3).
+Report (18.08.2026): the same session open in a terminal and in the WebUI at once.
+The terminal shows a turn in progress; the browser looks as if Hermes had finished.
+For a screen reader user this is the worst possible state: silence
+indistinguishable from a crash (WCAG 4.1.3).
 
-ZMIERZONA PRZYCZYNA (na zywej sesji, w ktorej agent wlasnie pisal):
-``/api/session`` zwracalo ``is_streaming=false`` i ``active_stream_id=null`` —
-serwer sledzi wylacznie strumienie, ktore sam obsluguje, wiec tura lecaca w CLI
-jest dla niego niewidoczna. Porownanie sesji pracujacej z bezczynna nie dawalo
-ZADNEJ roznicy w polach *stream*/*active*/*pending*.
+MEASURED CAUSE (on a live session where the agent was actively writing):
+``/api/session`` returned ``is_streaming=false`` and ``active_stream_id=null`` —
+the server tracks only the streams it serves itself, so a turn running in the CLI
+is invisible to it. Comparing a working session against an idle one showed NO
+difference at all in the *stream*/*active*/*pending* fields.
 
-Sygnal istnial, tylko nikt go nie przekazywal: agent zapisuje swoj biezacy etap
-do ``sessions.last_activity_at`` / ``last_activity_description``
+The signal existed, it just was not passed on: the agent writes its current stage
+to ``sessions.last_activity_at`` / ``last_activity_description``
 ("receiving stream response", "executing tool: terminal",
-"terminal command running (60s elapsed)"). WebUI nie czytal tych kolumn nigdzie.
+"terminal command running (60s elapsed)"). The WebUI read those columns nowhere.
 
-DLACZEGO PROG WYNOSI 90 s, a nie 10 czy 30: probkowanie 22x co 4 s w trakcie
-realnej pracy pokazalo, ze znacznik potrafi stac 58 s (aktualizuje sie przy
-ZMIANIE ETAPU, nie co sekunde), a licznik wiadomosci stal przez cale 88 s
-pomiaru. Prog krotszy niz zmierzone maksimum sprawia, ze komunikat MIGA w
-srodku jednego dlugiego wywolania modelu — a stan migajacy jest dla uzytkownika
-czytnika gorszy niz brak stanu.
+WHY THE THRESHOLD IS 90s AND NOT 10 OR 30: sampling 22 times every 4s during real
+work showed the marker can sit still for 58s (it updates on a STAGE CHANGE, not
+every second), while the message counter did not move for the full 88s of the
+measurement. A threshold shorter than the measured maximum makes the message FLICKER
+in the middle of one long model call — and a flickering state is worse for a screen
+reader user than no state at all.
 
-Testy WYKONUJA prawdziwe funkcje w node, bo defekt dotyczy DECYZJI podejmowanej
-na danych, a nie obecnosci tekstu w zrodle.
+The tests EXECUTE the real functions in node, because the defect is about a DECISION
+made on data, not about the presence of text in the source.
 """
 
 from pathlib import Path
@@ -91,64 +91,64 @@ vm.createContext(ctx);
 vm.runInContext("function t(k){return null;}", ctx);
 vm.runInContext(fs.readFileSync(A11Y_PATH, 'utf8'), ctx);
 
-const sek = () => Date.now() / 1000;
+const nowSec = () => Date.now() / 1000;
 const out = {};
 
 out.pracaSwieza = ctx.a11yForeignRunActivity({
-  last_activity_at: sek() - 5,
+  last_activity_at: nowSec() - 5,
   last_activity_description: 'executing tool: terminal',
   ended_at: null,
 });
-out.pracaPrzerwa58 = ctx.a11yForeignRunActivity({
-  last_activity_at: sek() - 58,
+out.workWithGap58 = ctx.a11yForeignRunActivity({
+  last_activity_at: nowSec() - 58,
   last_activity_description: 'receiving stream response',
   ended_at: null,
 });
 out.znacznikStary = ctx.a11yForeignRunActivity({
-  last_activity_at: sek() - 200,
+  last_activity_at: nowSec() - 200,
   last_activity_description: 'receiving stream response',
   ended_at: null,
 });
 out.sesjaZakonczona = ctx.a11yForeignRunActivity({
-  last_activity_at: sek() - 3,
+  last_activity_at: nowSec() - 3,
   last_activity_description: 'receiving stream response',
   ended_at: 1787000000,
 });
 out.brakOpisu = ctx.a11yForeignRunActivity({
-  last_activity_at: sek() - 3, last_activity_description: '',
+  last_activity_at: nowSec() - 3, last_activity_description: '',
 });
 out.brakZnacznika = ctx.a11yForeignRunActivity({});
 out.pusteDane = ctx.a11yForeignRunActivity(null);
 out.znacznikZPrzyszlosci = ctx.a11yForeignRunActivity({
-  last_activity_at: sek() + 600,
+  last_activity_at: nowSec() + 600,
   last_activity_description: 'receiving stream response',
 });
 
 const host = mkEl('div'); host.id = 'a11yRunStatus'; rejestr['a11yRunStatus'] = host;
 out.zapalony = ctx.a11ySyncForeignRunState({
-  last_activity_at: sek() - 4,
+  last_activity_at: nowSec() - 4,
   last_activity_description: 'executing tool: terminal',
 });
 out.tekstStanu = host.textContent;
 
 out.zgaszony = ctx.a11ySyncForeignRunState({
-  last_activity_at: sek() - 300,
+  last_activity_at: nowSec() - 300,
   last_activity_description: 'receiving stream response',
 });
 out.tekstPoZgaszeniu = host.textContent;
 
-let ogloszenia = 0;
-ctx.a11yAnnounce = () => { ogloszenia += 1; };
+let announcements = 0;
+ctx.a11yAnnounce = () => { announcements += 1; };
 ctx.window.a11yAnnounce = ctx.a11yAnnounce;
-const dane = { last_activity_at: sek() - 2, last_activity_description: 'executing tool: read_file' };
-ctx.a11ySyncForeignRunState(dane);
-ctx.a11ySyncForeignRunState(dane);
-ctx.a11ySyncForeignRunState(dane);
-out.ogloszenia = ogloszenia;
+const data = { last_activity_at: nowSec() - 2, last_activity_description: 'executing tool: read_file' };
+ctx.a11ySyncForeignRunState(data);
+ctx.a11ySyncForeignRunState(data);
+ctx.a11ySyncForeignRunState(data);
+out.announcements = announcements;
 
 ctx.a11yRunStarted();
 out.wlasnyMaPierwszenstwo = ctx.a11ySyncForeignRunState({
-  last_activity_at: sek() - 2,
+  last_activity_at: nowSec() - 2,
   last_activity_description: 'executing tool: terminal',
 });
 
@@ -157,124 +157,124 @@ console.log(JSON.stringify(out));
 
 
 @pytest.fixture(scope="module")
-def zachowanie(tmp_path_factory):
+def behaviour(tmp_path_factory):
     if not NODE:
-        pytest.skip("node niedostepny - nie da sie zmierzyc zachowania")
-    skrypt = tmp_path_factory.mktemp("obcy") / "harness.js"
-    skrypt.write_text(
+        pytest.skip("node unavailable - cannot measure behavior")
+    script = tmp_path_factory.mktemp("foreign") / "harness.js"
+    script.write_text(
         f"const A11Y_PATH = {json.dumps(str(REPO / 'static' / 'a11y-helpers.js'))};\n"
         + HARNESS,
         encoding="utf-8",
     )
-    proc = subprocess.run([NODE, str(skrypt)], capture_output=True, text=True, timeout=90)
+    proc = subprocess.run([NODE, str(script)], capture_output=True, text=True, timeout=90)
     assert proc.returncode == 0, f"harness padl: {proc.stderr[-2000:]}"
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
 class TestRozpoznawaniePracyZCLI:
-    def test_swieza_praca_jest_rozpoznana(self, zachowanie):
-        assert zachowanie["pracaSwieza"] == "executing tool: terminal", (
-            "tura z CLI musi byc widoczna w przegladarce"
+    def test_recent_work_is_recognised(self, behaviour):
+        assert behaviour["pracaSwieza"] == "executing tool: terminal", (
+            "a CLI turn must be visible in the browser"
         )
 
-    def test_dluga_przerwa_nie_gasi_stanu(self, zachowanie):
-        """Zmierzone maksimum przerwy w sygnale to 58 s."""
-        assert zachowanie["pracaPrzerwa58"] == "receiving stream response", (
-            "prog musi przetrwac najdluzsza ZMIERZONA przerwe, inaczej komunikat "
-            "miga w srodku jednego dlugiego wywolania modelu"
+    def test_a_long_pause_does_not_clear_the_state(self, behaviour):
+        """The measured maximum gap in the signal is 58 s."""
+        assert behaviour["workWithGap58"] == "receiving stream response", (
+            "the threshold must survive the longest MEASURED gap, otherwise the message "
+            "flickers in the middle of one long model call"
         )
 
-    def test_czynnosc_jest_konkretna(self, zachowanie):
-        """Uzytkownik ma wiedziec CO sie dzieje, nie tylko ze cos sie dzieje."""
-        assert "tool" in zachowanie["pracaSwieza"] or "stream" in zachowanie["pracaSwieza"]
+    def test_the_activity_is_specific(self, behaviour):
+        """The user must know WHAT is happening, not only that something is happening."""
+        assert "tool" in behaviour["pracaSwieza"] or "stream" in behaviour["pracaSwieza"]
 
 
 class TestKiedyStanuNieWolnoZapalac:
-    def test_stary_znacznik_to_nie_praca(self, zachowanie):
-        assert zachowanie["znacznikStary"] == ""
+    def test_a_stale_marker_is_not_active_work(self, behaviour):
+        assert behaviour["znacznikStary"] == ""
 
-    def test_zakonczona_sesja_nie_pracuje(self, zachowanie):
-        assert zachowanie["sesjaZakonczona"] == "", (
-            "ended_at wygrywa ze swiezoscia znacznika"
+    def test_a_finished_session_is_not_working(self, behaviour):
+        assert behaviour["sesjaZakonczona"] == "", (
+            "ended_at wins over marker freshness"
         )
 
-    def test_bez_opisu_nie_zgadujemy(self, zachowanie):
-        assert zachowanie["brakOpisu"] == "", (
-            "'cos sie dzieje' bez tresci to szum, nie informacja"
+    def test_no_description_means_no_guessing(self, behaviour):
+        assert behaviour["brakOpisu"] == "", (
+            "'something is happening' without content is noise, not information"
         )
 
-    def test_brak_danych_nie_zapala_stanu(self, zachowanie):
-        assert zachowanie["brakZnacznika"] == ""
-        assert zachowanie["pusteDane"] == ""
+    def test_missing_data_does_not_light_up_the_state(self, behaviour):
+        assert behaviour["brakZnacznika"] == ""
+        assert behaviour["pusteDane"] == ""
 
-    def test_znacznik_z_przyszlosci_jest_odrzucany(self, zachowanie):
-        """Rozjechany zegar nie moze dawac wiecznej 'pracy'."""
-        assert zachowanie["znacznikZPrzyszlosci"] == ""
+    def test_a_future_timestamp_is_rejected(self, behaviour):
+        """A skewed clock must not produce permanent 'working'."""
+        assert behaviour["znacznikZPrzyszlosci"] == ""
 
 
 class TestCichyStan:
-    def test_stan_zapala_sie_i_niesie_czynnosc(self, zachowanie):
-        assert zachowanie["zapalony"] is True
-        assert "executing tool: terminal" in zachowanie["tekstStanu"]
+    def test_state_turns_on_and_carries_the_activity(self, behaviour):
+        assert behaviour["zapalony"] is True
+        assert "executing tool: terminal" in behaviour["tekstStanu"]
 
-    def test_stan_mowi_ze_praca_jest_gdzie_indziej(self, zachowanie):
-        tekst = zachowanie["tekstStanu"].lower()
-        assert "elsewhere" in tekst or "another" in tekst, (
-            "uzytkownik musi wiedziec, ze to nie jest bieg tej karty"
+    def test_state_says_the_work_is_elsewhere(self, behaviour):
+        text = behaviour["tekstStanu"].lower()
+        assert "elsewhere" in text or "another" in text, (
+            "the user must know this is not a run owned by this tab"
         )
 
-    def test_stan_gasnie_gdy_praca_ustala(self, zachowanie):
-        assert zachowanie["zgaszony"] is False
-        assert zachowanie["tekstPoZgaszeniu"] == ""
+    def test_state_clears_when_the_work_stops(self, behaviour):
+        assert behaviour["zgaszony"] is False
+        assert behaviour["tekstPoZgaszeniu"] == ""
 
-    def test_powtorzenia_nie_gadaja(self, zachowanie):
-        assert zachowanie["ogloszenia"] <= 1, (
-            "czytnik ma uslyszec komunikat RAZ; odswiezenia sa ciche"
+    def test_repeats_do_not_re_announce(self, behaviour):
+        assert behaviour["announcements"] <= 1, (
+            "the screen reader must hear the message ONCE; refreshes stay silent"
         )
 
-    def test_wlasny_bieg_ma_pierwszenstwo(self, zachowanie):
-        assert zachowanie["wlasnyMaPierwszenstwo"] is False, (
-            "stan tej karty jest dokladniejszy - nie wolno go nadpisywac"
+    def test_local_run_takes_precedence(self, behaviour):
+        assert behaviour["wlasnyMaPierwszenstwo"] is False, (
+            "this tab's state is more precise - it must not be overwritten"
         )
 
 
-class TestSciezkaDanychNaSerwerze:
-    """Sygnal musi realnie dojsc z bazy do przegladarki."""
+class TestServerSideDataPath:
+    """The signal must actually reach the browser from the database."""
 
-    def test_zapytanie_pobiera_kolumny_stanu_pracy(self):
+    def test_query_selects_the_run_state_columns(self):
         assert "last_activity_at_expr" in AGENT_SESSIONS_PY
         assert "last_activity_description_expr" in AGENT_SESSIONS_PY
         assert "{last_activity_at_expr}" in AGENT_SESSIONS_PY, (
-            "kolumny musza byc w SELECT, nie tylko zdefiniowane"
+            "the columns must be in SELECT, not only defined"
         )
 
-    def test_projekcja_przekazuje_stan_we_wszystkich_przebiegach(self):
-        """Projekcja powstaje w czterech blizniaczych przebiegach."""
+    def test_projection_passes_state_through_every_path(self):
+        """The projection is created in four sibling paths."""
         assert MODELS_PY.count("_agent_row_live_work_state(row)") >= 4, (
-            "kazdy przebieg musi przekazac stan, inaczej czesc sesji bedzie niema"
+            "every path must pass the state through, otherwise some sessions will be mute"
         )
 
-    def test_api_session_podaje_stan_dla_kazdego_zrodla(self):
-        """Sesja CLI wypadala z obu istniejacych galezi scalania metadanych."""
+    def test_api_session_reports_state_for_every_source(self):
+        """The CLI session was missing from both existing metadata-merge branches."""
         idx = ROUTES_PY.find("_merge_cli_sidebar_metadata(raw, cli_meta)")
         assert idx > 0
         okno = ROUTES_PY[idx:idx + 1800]
         assert "last_activity_at" in okno and "last_activity_description" in okno, (
-            "przekazanie musi stac POZA galeziami webui/messaging"
+            "the pass-through must be OUTSIDE the webui/messaging branches"
         )
 
-    def test_watchdog_uwzglednia_sygnal_agenta(self):
+    def test_watchdog_accounts_for_the_agent_signal(self):
         idx = A11Y_JS.find("_a11yForeignPoll")
         assert idx > 0
         okno = A11Y_JS[idx:idx + 4000]
         assert "last_activity_at" in okno, (
-            "sam last_message_at daje martwe okna: zmierzone 88 s pracy bez "
-            "ani jednej nowej wiadomosci"
+            "last_message_at alone creates dead windows: measured 88 s of work without "
+            "a single new message"
         )
 
 
-class TestTlumaczenia:
-    def test_komunikat_jest_we_wszystkich_locale(self):
+class TestTranslations:
+    def test_message_exists_in_every_locale(self):
         assert I18N_JS.count("a11y_run_working_elsewhere") >= 15, (
-            f"klucz w {I18N_JS.count('a11y_run_working_elsewhere')} locale zamiast 15"
+            f"key in {I18N_JS.count('a11y_run_working_elsewhere')} locales instead of 15"
         )
