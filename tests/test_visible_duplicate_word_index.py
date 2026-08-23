@@ -108,7 +108,7 @@ def _assert_equivalence(visible_key, keys, *, require_narrowing=True):
     return expected
 
 
-class TestIndeksNieZmieniaWyniku:
+class TestIndexDoesNotChangeTheResult:
     """Every match shape must come out the same with and without the index."""
 
     def test_long_query_and_short_candidate_still_match(self):
@@ -229,7 +229,7 @@ class TestIndeksNieZmieniaWyniku:
         _assert_equivalence(probe, keys)
 
 
-class TestIndeksFaktycznieZawez:
+class TestIndexActuallyNarrows:
     """Without this, the index could be 'correct' by returning everything."""
 
     def test_index_filters_out_most_candidates(self):
@@ -267,7 +267,7 @@ class TestIndeksFaktycznieZawez:
         )
 
 
-class TestProgWlaczaniaIndeksu:
+class TestIndexActivationThreshold:
     def test_small_roles_stay_on_the_old_path(self):
         """Below the threshold the index is not worth it and is absent from the lookup."""
         keys = [_visible_key("user", f"content {i} " + "word " * 20)
@@ -304,7 +304,7 @@ class TestProgWlaczaniaIndeksu:
         assert calls["n"] == 1, f"the index was built {calls['n']} times, it should be built once"
 
 
-class TestStalejKonfiguracji:
+class TestStableConfiguration:
     def test_thresholds_have_sane_values(self):
         assert models._WORD_INDEX_MIN_CHARS >= 8, (
             "a length threshold set too low would let texts into the index for which "

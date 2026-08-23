@@ -171,7 +171,7 @@ def behaviour(tmp_path_factory):
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
-class TestRozpoznawaniePracyZCLI:
+class TestRecognisingWorkFromTheCli:
     def test_recent_work_is_recognised(self, behaviour):
         assert behaviour["pracaSwieza"] == "executing tool: terminal", (
             "a CLI turn must be visible in the browser"
@@ -189,7 +189,7 @@ class TestRozpoznawaniePracyZCLI:
         assert "tool" in behaviour["pracaSwieza"] or "stream" in behaviour["pracaSwieza"]
 
 
-class TestKiedyStanuNieWolnoZapalac:
+class TestWhenTheStateMustStayOff:
     def test_a_stale_marker_is_not_active_work(self, behaviour):
         assert behaviour["znacznikStary"] == ""
 
@@ -212,7 +212,7 @@ class TestKiedyStanuNieWolnoZapalac:
         assert behaviour["znacznikZPrzyszlosci"] == ""
 
 
-class TestCichyStan:
+class TestQuietState:
     def test_state_turns_on_and_carries_the_activity(self, behaviour):
         assert behaviour["zapalony"] is True
         assert "executing tool: terminal" in behaviour["tekstStanu"]

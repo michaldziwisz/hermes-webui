@@ -70,18 +70,18 @@ class TestServerSideOffsetCalculation:
             "the number of tool rows"
         )
 
-    def test_zero_i_brak_offsetu(self):
+    def test_zero_and_missing_offset(self):
         from api.routes import _renderable_count_before
         rows = _rows("u", "a")
         assert _renderable_count_before(rows, 0) == 0
         assert _renderable_count_before(rows, None) == 0
 
-    def test_offset_wiekszy_niz_lista(self):
+    def test_offset_larger_than_the_list(self):
         from api.routes import _renderable_count_before
         rows = _rows("u", "a", "t")
         assert _renderable_count_before(rows, 999) == 2
 
-    def test_bledne_dane_nie_wywracaja(self):
+    def test_bad_data_does_not_break_it(self):
         from api.routes import _renderable_count_before
         assert _renderable_count_before(None, 5) == 0
         assert _renderable_count_before(_rows("u"), "abc") == 0
@@ -251,17 +251,17 @@ def behaviour(tmp_path_factory):
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
-class TestNumeracjaGlobalna:
-    def test_dluga_sesja_nie_zaczyna_od_jednego(self, behaviour):
+class TestGlobalNumbering:
+    def test_a_long_session_does_not_start_at_one(self, behaviour):
         """Core report: a 3-turn window, 573 hidden -> numbers 574-576."""
         d = behaviour["long_key"]
         assert d[0].startswith("574"), f"pierwszy heading: {d[0]}"
         assert d[-1].startswith("576"), f"ostatni heading: {d[-1]}"
 
-    def test_krotka_sesja_numeruje_od_jednego(self, behaviour):
+    def test_a_short_session_numbers_from_one(self, behaviour):
         assert behaviour["short_key"][0].startswith("1")
 
-    def test_pierwszy_naglowek_podaje_ile_jest_razem(self, behaviour):
+    def test_first_heading_states_the_total(self, behaviour):
         """The user should perceive that the session is progressing."""
         assert "/576" in behaviour["long_key"][0]
 
@@ -271,17 +271,17 @@ class TestNumeracjaGlobalna:
             assert "/576" not in n, f"heading repeats the total: {n}"
 
 
-class TestDoladowanieWstecz:
-    def test_numery_starszych_wypowiedzi_nie_skacza(self, behaviour):
+class TestLoadingOlderMessages:
+    def test_numbers_of_older_turns_do_not_jump(self, behaviour):
         """The same turn must keep the same number after backfill."""
         assert behaviour["poDoladowaniu"][-1].startswith("576"), (
             f"ostatni po doladowaniu: {behaviour['poDoladowaniu'][-1]}"
         )
 
-    def test_nowo_odsloniete_maja_nizsze_numery(self, behaviour):
+    def test_newly_revealed_turns_get_lower_numbers(self, behaviour):
         assert behaviour["poDoladowaniu"][0].startswith("571")
 
-    def test_suma_sie_nie_zmienia(self, behaviour):
+    def test_the_total_stays_the_same(self, behaviour):
         assert "/576" in behaviour["poDoladowaniu"][0]
 
     def test_changing_the_offset_recomputes_existing_headings(self, behaviour):
@@ -289,38 +289,38 @@ class TestDoladowanieWstecz:
         assert behaviour["beforeChange"][0] != behaviour["afterChange"][0]
         assert behaviour["afterChange"][0].startswith("101")
 
-    def test_powtorne_ustawienie_nic_nie_zmienia(self, behaviour):
+    def test_setting_it_again_changes_nothing(self, behaviour):
         assert behaviour["idempotentne"] is True
 
 
-class TestOdpornoscNaBledneDane:
+class TestRobustnessAgainstBadData:
     """Missing or bad data must not break numbering - local is better than none."""
 
-    def test_brak_danych_daje_numeracje_lokalna(self, behaviour):
+    def test_missing_data_falls_back_to_local_numbering(self, behaviour):
         assert behaviour["brakDanych"][0].startswith("1")
 
-    def test_liczby_ujemne_odrzucone(self, behaviour):
+    def test_negative_numbers_are_rejected(self, behaviour):
         assert behaviour["ujemne"][0].startswith("1")
 
-    def test_tekst_zamiast_liczby_odrzucony(self, behaviour):
+    def test_text_instead_of_a_number_is_rejected(self, behaviour):
         assert behaviour["text"][0].startswith("1")
 
-    def test_liczby_niecalkowite_obcinane(self, behaviour):
+    def test_non_integer_numbers_are_truncated(self, behaviour):
         assert behaviour["niecalkowite"][0].startswith("11")
 
 
-class TestNaglowekJestCzytelnyDlaCzytnika:
-    def test_naglowek_to_h2(self, behaviour):
+class TestHeadingIsReadableByScreenReaders:
+    def test_heading_is_an_h2(self, behaviour):
         assert behaviour["heading"]["tag"] == "H2"
 
-    def test_naglowek_zawiera_globalny_numer(self, behaviour):
+    def test_heading_contains_the_global_number(self, behaviour):
         assert behaviour["heading"]["text"].startswith("43")
 
 
 class TestEveryWindowLoadPath:
     """Numbering must be set everywhere the window changes."""
 
-    def test_wszystkie_miejsca_ustawiaja_numeracje(self):
+    def test_every_call_site_sets_the_numbering(self):
         trafienia = 0
         for name in ("messages.js", "sessions.js", "ui.js"):
             trafienia += (REPO / "static" / name).read_text(
@@ -330,7 +330,7 @@ class TestEveryWindowLoadPath:
             "(full load, backward backfill, refresh, session switch)"
         )
 
-    def test_doladowanie_wstecz_ma_wpiecie(self):
+    def test_loading_older_messages_is_wired_up(self):
         sessions = (REPO / "static" / "sessions.js").read_text(encoding="utf-8")
         idx = sessions.find("_oldestIdx = responseSession._messages_offset")
         assert idx > 0

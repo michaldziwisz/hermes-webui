@@ -38,7 +38,7 @@ SESSIONS_JS = (REPO / "static" / "sessions.js").read_text(encoding="utf-8")
 ROUTES_PY = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
 
 
-class TestSerwerWystawiaSpojnyMarker:
+class TestServerExposesAConsistentMarker:
     def test_marker_is_present_in_the_response(self):
         assert '"_transcript_marker"' in ROUTES_PY
 
@@ -80,7 +80,7 @@ class TestSerwerWystawiaSpojnyMarker:
 
 
 class TestBrowserComparesMarkers:
-    def test_sonda_uzywa_markera(self):
+    def test_the_poll_uses_the_marker(self):
         idx = SESSIONS_JS.find("async function refreshActiveSessionIfExternallyUpdated")
         assert idx > 0
         body = SESSIONS_JS[idx:idx + 4000]

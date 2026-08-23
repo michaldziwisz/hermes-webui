@@ -401,9 +401,9 @@ console.log(JSON.stringify(out));
           _a11yRefreshRunStatus();
           a11yRunIdlePause();
           return {text: document.getElementById('a11yRunStatus').textContent,
-                  aktywny: a11yRunIsActive()};
+                  isActive: a11yRunIsActive()};
         })()""")
-        assert out["aktywny"] is False
+        assert out["isActive"] is False
         assert out["text"] == ""
 
     def test_baseline_reset_is_one_shared_helper_not_copies(self):

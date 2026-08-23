@@ -45,7 +45,7 @@ NODE = shutil.which("node")
 HARNESS = Path(__file__).parent / "_harness_drzewo.js"
 
 
-class TestHelperyIstniejaISaWpiete:
+class TestHelpersExistAndAreWired:
     def test_tree_helpers_exist(self):
         assert "function a11yTreeRow(" in A11Y_JS
         assert "function a11yTree(" in A11Y_JS
@@ -171,7 +171,7 @@ class TestContainerBehaviour:
         assert behaviour["kontener"]["listenersAfterThreeCalls"] == 1
 
 
-class TestNawigacjaKlawiatura:
+class TestKeyboardNavigation:
     def test_down_and_up_arrows(self, behaviour):
         assert behaviour["nawigacja"]["downToSecond"] is True
         assert behaviour["nawigacja"]["upReturns"] is True
@@ -181,11 +181,11 @@ class TestNawigacjaKlawiatura:
             "only one row may be in the Tab order"
         )
 
-    def test_home_i_end(self, behaviour):
+    def test_home_and_end(self, behaviour):
         assert behaviour["nawigacja"]["endToLast"] is True
         assert behaviour["nawigacja"]["homeToFirst"] is True
 
-    def test_prawo_rozwija_lewo_zwija(self, behaviour):
+    def test_right_expands_left_collapses(self, behaviour):
         assert behaviour["nawigacja"]["rightExpands"] is True
         assert behaviour["nawigacja"]["leftCollapses"] is True
 
