@@ -312,6 +312,10 @@ function a11yTreeRow(row, opts){
   // even when the icon is invisible to the screen reader.
   if (o.label) a11yLabel(row, o.label);
   row.setAttribute('tabindex', o.focusable ? '0' : '-1');
+  // Stable identity for restoring the keyboard position after a rebuild. The
+  // index cannot serve here: expanding a directory changes how many rows precede
+  // an entry. See a11yTreeRememberFocus / a11yTreeRestoreFocus.
+  if (o.path && row.dataset) row.dataset.a11yTreePath = String(o.path);
   return row;
 }
 
@@ -344,8 +348,8 @@ function a11yTree(container, opts){
 
     if (key === 'ArrowDown' || key === 'ArrowUp') {
       ev.preventDefault();
-      const krok = key === 'ArrowDown' ? 1 : -1;
-      const next = i < 0 ? 0 : (i + krok + items.length) % items.length;
+      const step = key === 'ArrowDown' ? 1 : -1;
+      const next = i < 0 ? 0 : (i + step + items.length) % items.length;
       moveFocus(items[next]);
       return;
     }
@@ -355,22 +359,22 @@ function a11yTree(container, opts){
       return;
     }
     if (i < 0) return;
-    const biezacy = items[i];
-    const rozwijalny = biezacy.hasAttribute('aria-expanded');
-    const rozwiniety = biezacy.getAttribute('aria-expanded') === 'true';
+    const current = items[i];
+    const expandable = current.hasAttribute('aria-expanded');
+    const expanded = current.getAttribute('aria-expanded') === 'true';
 
     // Right arrow: expand the directory. If already expanded - move inside.
     if (key === 'ArrowRight') {
       ev.preventDefault();
-      if (rozwijalny && !rozwiniety) { if (typeof biezacy.click === 'function') biezacy.click(); }
+      if (expandable && !expanded) { if (typeof current.click === 'function') current.click(); }
       else if (items[i + 1]) moveFocus(items[i + 1]);
       return;
     }
     // Left arrow: collapse. If collapsed/file - go to the parent (higher level).
     if (key === 'ArrowLeft') {
       ev.preventDefault();
-      if (rozwijalny && rozwiniety) { if (typeof biezacy.click === 'function') biezacy.click(); return; }
-      const level = Number(biezacy.getAttribute('aria-level') || 0);
+      if (expandable && expanded) { if (typeof current.click === 'function') current.click(); return; }
+      const level = Number(current.getAttribute('aria-level') || 0);
       for (let j = i - 1; j >= 0; j--) {
         if (Number(items[j].getAttribute('aria-level') || 0) < level) { moveFocus(items[j]); return; }
       }
@@ -378,10 +382,54 @@ function a11yTree(container, opts){
     }
     if (key === 'Enter' || key === ' ') {
       ev.preventDefault();
-      if (typeof biezacy.click === 'function') biezacy.click();
+      if (typeof current.click === 'function') current.click();
     }
   });
   return container;
+}
+
+/* Keep the keyboard position across a full tree rebuild.
+ *
+ * Raised in review of #7258: toggling a directory calls click(), which triggers
+ * renderFileTree(); that replaces every row and hands the single tab stop to the
+ * FIRST top-level row. The row the user just toggled is detached, so focus falls
+ * to document.body and the next arrow press restarts at the top of the tree.
+ * Expanding a directory then teleports the user away from it, silently.
+ *
+ * Identity is the entry PATH, not the index: expanding changes how many rows
+ * precede an entry, so a remembered index points somewhere else after the
+ * rebuild. When the remembered path is gone (collapsed away, deleted) we fall
+ * back to the first row - a tree with no tab stop is unreachable by keyboard,
+ * which would be a worse bug than the one being fixed.
+ */
+function a11yTreeRememberFocus(container){
+  try {
+    if (!container || typeof container.querySelectorAll !== 'function') return null;
+    const active = (typeof document !== 'undefined' && document.activeElement) || null;
+    if (!active) return null;
+    const rows = Array.from(container.querySelectorAll('[role="treeitem"]'));
+    if (rows.indexOf(active) < 0) return null;   // focus is not in this tree
+    const path = (active.dataset && active.dataset.a11yTreePath) || null;
+    return path ? {path: path, hadFocus: true} : null;
+  } catch (_e) { return null; }
+}
+
+function a11yTreeRestoreFocus(container, token){
+  try {
+    if (!container || typeof container.querySelectorAll !== 'function') return;
+    const rows = Array.from(container.querySelectorAll('[role="treeitem"]'));
+    if (!rows.length) return;
+    let target = null;
+    if (token && token.path) {
+      target = rows.find((r) => r.dataset && r.dataset.a11yTreePath === token.path) || null;
+    }
+    // No token, or the entry vanished: leave exactly one tab stop on the first row.
+    if (!target) target = rows.find((r) => r.getAttribute('tabindex') === '0') || rows[0];
+    for (const r of rows) r.setAttribute('tabindex', r === target ? '0' : '-1');
+    // Only take focus when we actually had it before - otherwise a background
+    // refresh would steal focus from whatever the user is doing elsewhere.
+    if (token && token.hadFocus && typeof target.focus === 'function') target.focus();
+  } catch (_e) { /* a rebuild must never fail because of focus bookkeeping */ }
 }
 
 /* Arrow-key-driven selection list (combobox + listbox).
@@ -448,6 +496,8 @@ if (typeof window !== 'undefined') {
   window.a11yTablist = a11yTablist;
   window.a11yTree = a11yTree;
   window.a11yTreeRow = a11yTreeRow;
+  window.a11yTreeRememberFocus = a11yTreeRememberFocus;
+  window.a11yTreeRestoreFocus = a11yTreeRestoreFocus;
   window.a11yActiveDescendantList = a11yActiveDescendantList;
 }
 
@@ -1197,6 +1247,16 @@ async function _a11yForeignPoll(){
                           {credentials: 'same-origin'});
     if (!r.ok) return;
     const d = await r.json();
+    // OWNERSHIP RE-CHECK AFTER THE AWAIT. The guard at the top of this function
+    // runs BEFORE the request, so a conversation switch while the request is in
+    // flight leaves us holding the PREVIOUS session's data. Using it would set
+    // the new conversation's measurement baseline from a foreign session and
+    // could announce "Hermes is working" in a conversation that is idle - the
+    // inverse of the defect this watchdog exists to fix, and worse for a screen
+    // reader user than silence, because it is a spoken claim that is false.
+    // Raised in review of #7258. See tests/test_a11y_foreign_poll_ownership.py,
+    // which drives the race explicitly (the test fails without these two lines).
+    if (sid !== _a11ySidFromLocation() || sid !== _a11yForeignSid) return;
     const s = (d && d.session) || d || {};
     sessionData = s;
     // Two independent proofs of progress, taken TOGETHER.

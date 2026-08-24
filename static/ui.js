@@ -20943,6 +20943,13 @@ function renderFileTree(){
   // BELOW the clicked disclosure, so the clicked row keeps its offset from the top (no
   // getBoundingClientRect anchor delta needed — that's only for prepend-above cases).
   const prevScrollTop=box?box.scrollTop:0;
+  // Same class of loss as the scroll position above, one layer up: innerHTML=''
+  // detaches every row, so the roving tab stop is rebuilt onto the FIRST row and
+  // the keyboard user is thrown back to the top of the tree by the very act of
+  // expanding a directory. Remembered by entry path (the index shifts when rows
+  // appear), restored after the render tail. Raised in review of #7258.
+  const prevTreeFocus=(typeof a11yTreeRememberFocus==='function')
+    ? a11yTreeRememberFocus(box) : null;
   box.innerHTML='';
   // Cache current dir entries
   S._dirCache[S.currentDir||'.']=S.entries;
@@ -20977,6 +20984,10 @@ function renderFileTree(){
   }
   // #5657: restore the pre-wipe scroll position now that the tree is tall again.
   if(box) box.scrollTop=prevScrollTop;
+  // Restore the keyboard position last, after a11yTree() has wired the container
+  // and every row carries its contract. Falls back to the first row when the
+  // remembered entry is gone, so the tree always keeps exactly one tab stop.
+  if(typeof a11yTreeRestoreFocus==='function') a11yTreeRestoreFocus(box, prevTreeFocus);
 }
 
 let _wsActiveDragPath=null;
@@ -21380,21 +21391,22 @@ function _renderTreeItems(container, entries, depth){
     // control, it was unreachable by keyboard, and the whole row sounded like
     // "▸ .cache ×" (report 2026-08-18).
     if(typeof a11yTreeRow==='function'){
-      const _rodzaj=isExternalLink
+      const _kind=isExternalLink
         ? ((typeof t==='function' && t('tree_external_link_aria'))||'external link')
         : isDirLike
           ? ((typeof t==='function' && t('tree_folder_aria'))||'folder')
           : ((typeof t==='function' && t('tree_file_aria'))||'file');
       // The first top-level row holds focus for the whole tree (roving tabindex)
       // - otherwise a tree with a hundred files becomes a hundred Tabs.
-      const _pierwszy=depth===0 && container.querySelectorAll
+      const _isFirst=depth===0 && container.querySelectorAll
         && container.querySelectorAll('[role="treeitem"]').length===0;
       a11yTreeRow(el, {
         level: depth+1,
         expandable: isDirLike,
         expanded: isDirLike && S._expandedDirs.has(item.path),
-        label: `${_rodzaj} ${item.name}`,
-        focusable: _pierwszy,
+        label: `${_kind} ${item.name}`,
+        focusable: _isFirst,
+        path: item.path,
       });
     }
 
